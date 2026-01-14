@@ -131,6 +131,64 @@ diff --git a/kernel/Kconfig b/kernel/Kconfig
 +endmenu
 +
  endmenu
+diff --git a/kernel/supercalls.c b/kernel/supercalls.c
+--- a/kernel/supercalls.c
++++ b/kernel/supercalls.c
+@@ -22,7 +22,9 @@
+ #include "manager.h"
+ #include "selinux/selinux.h"
+ #include "file_wrapper.h"
++#ifndef CONFIG_KSU_SUSFS
+ #include "syscall_hook_manager.h"
++#endif // #ifndef CONFIG_KSU_SUSFS
+ #include "throne_comm.h"
+ #include "dynamic_manager.h"
+
+@@ -398,11 +400,15 @@ static int do_manage_mark(void __user *arg)
+
+     switch (cmd.action) {
+     case KSU_MARK_SET: {
++#ifndef CONFIG_KSU_SUSFS
+         if (cmd.pid == 0) {
+             ksu_mark_all_process();
+         } else {
+             ret = ksu_set_task_mark(cmd.pid, true);
+         }
++#else
++        pr_info("manage_mark: KSU_MARK_SET not available with SUSFS\n");
++#endif // #ifndef CONFIG_KSU_SUSFS
+         if (ret < 0) {
+             pr_err("manage_mark: set_mark failed for pid %d: %d\n", cmd.pid,
+                    ret);
+@@ -411,11 +417,15 @@ static int do_manage_mark(void __user *arg)
+         break;
+     }
+     case KSU_MARK_UNSET: {
++#ifndef CONFIG_KSU_SUSFS
+         if (cmd.pid == 0) {
+             ksu_unmark_all_process();
+         } else {
+             ret = ksu_set_task_mark(cmd.pid, false);
+         }
++#else
++        pr_info("manage_mark: KSU_MARK_UNSET not available with SUSFS\n");
++#endif // #ifndef CONFIG_KSU_SUSFS
+         if (ret < 0) {
+             pr_err("manage_mark: set_unmark failed for pid %d: %d\n",
+                    cmd.pid, ret);
+@@ -424,7 +434,11 @@ static int do_manage_mark(void __user *arg)
+         break;
+     }
+     case KSU_MARK_REFRESH: {
++#ifndef CONFIG_KSU_SUSFS
+         ksu_mark_running_process();
++#else
++        pr_info("manage_mark: KSU_MARK_REFRESH not available with SUSFS\n");
++#endif // #ifndef CONFIG_KSU_SUSFS
+         pr_info("manage_mark: refreshed running processes\n");
+         break;
+     }
+
 diff --git a/kernel/allowlist.c b/kernel/allowlist.c
 --- a/kernel/allowlist.c
 +++ b/kernel/allowlist.c
