@@ -1,4 +1,5 @@
 diff --git a/kernel/Kbuild b/kernel/Kbuild
+index 2ec76f6..e8abfcc 100644
 --- a/kernel/Kbuild
 +++ b/kernel/Kbuild
 @@ -4,7 +4,9 @@ kernelsu-objs += app_profile.o
@@ -11,10 +12,23 @@ diff --git a/kernel/Kbuild b/kernel/Kbuild
  kernelsu-objs += throne_tracker.o
  kernelsu-objs += pkg_observer.o
  kernelsu-objs += throne_tracker.o
+@@ -33,6 +35,11 @@ ccflags-y += -I$(objtree)/security/selinux -include $(srctree)/include/uapi/asm-
+ 
+ obj-$(CONFIG_KSU) += kernelsu.o
+ 
++ifdef CONFIG_KSU_SUSFS
++kernelsu-objs += susfs.o
++ccflags-y += -DKSU_SUSFS
++endif
++
+ obj-$(CONFIG_KPM) += kpm/
+ 
+ REPO_OWNER := ReSukiSU
 diff --git a/kernel/Kconfig b/kernel/Kconfig
+index c422bf8..10bca45 100644
 --- a/kernel/Kconfig
 +++ b/kernel/Kconfig
-@@ -33,4 +33,95 @@ config KPM
+@@ -33,4 +33,84 @@ config KPM
      select KALLSYMS
      select KALLSYMS_ALL
  
@@ -24,114 +38,86 @@ diff --git a/kernel/Kconfig b/kernel/Kconfig
 +    depends on KSU
 +    default y
 +    help
-+        Patch and Enable SUSFS to kernel with KernelSU.
++      Patch and Enable SUSFS to kernel with KernelSU
 +
 +config KSU_SUSFS_HAS_MAGIC_MOUNT
 +    bool "Enable magic mount support"
 +    depends on KSU_SUSFS
 +    default y
-+    help
-+        Enable magic mount support for SUSFS.
 +
 +config KSU_SUSFS_SUS_PATH
-+    bool "Enable to hide suspicious path"
++    bool "Enable suspicious path hiding"
 +    depends on KSU_SUSFS
 +    default y
-+    help
-+        Allow hiding the user-defined path and all its sub-paths.
 +
 +config KSU_SUSFS_SUS_MOUNT
-+    bool "Enable to hide suspicious mounts"
++    bool "Enable suspicious mount hiding"
 +    depends on KSU_SUSFS
 +    default y
-+    help
-+        Allow hiding mount paths from /proc/self/mounts.
 +
 +config KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
 +    bool "Auto add default KSU mounts"
 +    depends on KSU_SUSFS_SUS_MOUNT
 +    default y
-+    help
-+        Automatically add default KSU mounts to suspicious mount list.
 +
 +config KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
 +    bool "Auto add bind mounts"
 +    depends on KSU_SUSFS_SUS_MOUNT
 +    default y
-+    help
-+        Automatically add bind mounts to suspicious mount list.
 +
 +config KSU_SUSFS_SUS_KSTAT
-+    bool "Enable to spoof suspicious kstat"
++    bool "Enable suspicious kstat"
 +    depends on KSU_SUSFS
 +    default y
-+    help
-+        Allow spoofing the kstat of user-defined file/directory.
 +
 +config KSU_SUSFS_SUS_OVERLAYFS
-+    bool "Enable suspicious overlayfs hiding"
++    bool "Enable overlayfs hiding"
 +    depends on KSU_SUSFS
 +    default y
-+    help
-+        Enable overlayfs detection prevention.
 +
 +config KSU_SUSFS_TRY_UMOUNT
 +    bool "Enable try umount"
 +    depends on KSU_SUSFS
 +    default y
-+    help
-+        Enable try umount functionality.
 +
 +config KSU_SUSFS_SPOOF_UNAME
-+    bool "Enable to spoof uname"
++    bool "Enable uname spoofing"
 +    depends on KSU_SUSFS
 +    default y
-+    help
-+        Allow spoofing the string returned by uname syscall.
 +
 +config KSU_SUSFS_ENABLE_LOG
-+    bool "Enable logging susfs log to kernel"
++    bool "Enable SUSFS logging"
 +    depends on KSU_SUSFS
 +    default y
-+    help
-+        Allow logging susfs log to kernel.
 +
 +config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
-+    bool "Hide ksu and susfs symbols"
++    bool "Hide KSU SUSFS symbols"
 +    depends on KSU_SUSFS
 +    default y
-+    help
-+        Hide ksu and susfs symbols from /proc/kallsyms.
 +
 +config KSU_SUSFS_SUS_PROC
 +    bool "Hide processes from /proc"
 +    depends on KSU_SUSFS
 +    default y
 +    help
-+        Hide ksud from /proc enumeration.
++      Hide ksud and other processes from /proc enumeration.
++      This defeats Duck Detector daemonScan.
 +
 +config KSU_SUSFS_UNICODE_FILTER
 +    bool "Unicode security filter"
 +    depends on KSU_SUSFS
 +    default y
 +    help
-+        Block Unicode bypass attacks.
++      Block Unicode bypass attacks on Android/data paths.
 +
 +endmenu
 +
  endmenu
 diff --git a/kernel/ksu.c b/kernel/ksu.c
+index 4902a1f..bb251ea 100644
 --- a/kernel/ksu.c
 +++ b/kernel/ksu.c
-@@ -3,11 +3,17 @@
- #include <linux/kobject.h>
- #include <linux/module.h>
- #include <linux/workqueue.h>
-+#ifdef CONFIG_KSU_SUSFS
-+#include <linux/susfs.h>
-+#endif
- 
- #include "allowlist.h"
+@@ -8,7 +8,9 @@
  #include "feature.h"
  #include "klog.h" // IWYU pragma: keep
  #include "throne_tracker.h"
@@ -141,41 +127,41 @@ diff --git a/kernel/ksu.c b/kernel/ksu.c
  #include "ksud.h"
  #include "supercalls.h"
  #include "ksu.h"
-@@ -54,12 +60,20 @@ int __init kernelsu_init(void)
- 
- 	sukisu_custom_config_init();
- 
-+#ifndef CONFIG_KSU_SUSFS
- 	ksu_syscall_hook_manager_init();
-+#else
-+	ksu_setuid_hook_init();
-+	ksu_sucompat_init();
-+#endif
- 
- 	ksu_allowlist_init();
- 
- 	ksu_throne_tracker_init();
+@@ -20,6 +22,10 @@ struct cred *ksu_cred;
+ #include "throne_comm.h"
+ #include "dynamic_manager.h"
  
 +#ifdef CONFIG_KSU_SUSFS
-+	susfs_init();
++#include <linux/susfs.h>
 +#endif
- 	ksu_ksud_init();
++
+ void sukisu_custom_config_init(void)
+ {
+ }
+@@ -57,7 +63,11 @@ int __init kernelsu_init(void)
  
- 	ksu_file_wrapper_init();
-@@ -84,7 +98,12 @@ void kernelsu_exit(void)
- 
- 	ksu_ksud_exit();
+     sukisu_custom_config_init();
  
 +#ifndef CONFIG_KSU_SUSFS
- 	ksu_syscall_hook_manager_exit();
+     ksu_syscall_hook_manager_init();
 +#else
-+	ksu_setuid_hook_exit();
-+	ksu_sucompat_exit();
++    susfs_init();
 +#endif
  
- 	sukisu_custom_config_exit();
+     ksu_allowlist_init();
+ 
+@@ -86,7 +96,9 @@ void kernelsu_exit(void)
+ 
+     ksu_ksud_exit();
+ 
++#ifndef CONFIG_KSU_SUSFS
+     ksu_syscall_hook_manager_exit();
++#endif
+ 
+     sukisu_custom_config_exit();
  
 diff --git a/kernel/supercalls.c b/kernel/supercalls.c
+index 0afb1e0..2dda155 100644
 --- a/kernel/supercalls.c
 +++ b/kernel/supercalls.c
 @@ -22,7 +22,9 @@
@@ -188,65 +174,3 @@ diff --git a/kernel/supercalls.c b/kernel/supercalls.c
  #include "throne_comm.h"
  #include "dynamic_manager.h"
  
-@@ -386,6 +388,7 @@ static int do_manage_mark(void __user *arg)
- 	}
- 
- 	switch (cmd.operation) {
-+#ifndef CONFIG_KSU_SUSFS
- 	case KSU_MARK_GET: {
- 		ret = ksu_get_task_mark(cmd.pid);
- 		if (ret < 0) {
-@@ -418,6 +421,16 @@ static int do_manage_mark(void __user *arg)
- 		pr_info("manage_mark: refreshed running processes\n");
- 		break;
- 	}
-+#else
-+	case KSU_MARK_GET:
-+	case KSU_MARK_MARK:
-+	case KSU_MARK_UNMARK:
-+	case KSU_MARK_REFRESH: {
-+		pr_info("manage_mark: SUSFS mode - operation %u\n", cmd.operation);
-+		break;
-+	}
-+#endif
- 	default: {
- 		pr_err("manage_mark: invalid operation %u\n", cmd.operation);
- 		return -EINVAL;
-diff --git a/kernel/allowlist.c b/kernel/allowlist.c
---- a/kernel/allowlist.c
-+++ b/kernel/allowlist.c
-@@ -15,7 +15,9 @@
- #include "klog.h" // IWYU pragma: keep
- #include "ksud.h"
- #include "manager.h"
-+#ifndef CONFIG_KSU_SUSFS
- #include "syscall_hook_manager.h"
-+#endif
- 
- #define FILE_MAGIC 0x7f4b5355 // ' KSU' in little-endian (with bit 7 set)
- #define FILE_FORMAT_VERSION 3
-diff --git a/kernel/app_profile.c b/kernel/app_profile.c
---- a/kernel/app_profile.c
-+++ b/kernel/app_profile.c
-@@ -8,7 +8,9 @@
- 
- #include "app_profile.h"
- #include "manager.h"
- #include "klog.h" // IWYU pragma: keep
-+#ifndef CONFIG_KSU_SUSFS
- #include "syscall_hook_manager.h"
-+#endif
- #include "throne_tracker.h"
- 
- struct id_entry {
-@@ -103,8 +105,10 @@ bool ksu_set_app_profile(struct app_profile *profile, bool persist)
- 		}
- 	}
- 
-+#ifndef CONFIG_KSU_SUSFS
- 	// Update syscall hook manager
- 	ksu_mark_all_process();
-+#endif
- 
- 	if (!persist)
- 		return true;
