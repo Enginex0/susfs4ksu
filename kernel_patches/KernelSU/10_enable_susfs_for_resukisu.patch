@@ -17,7 +17,7 @@ diff --git a/kernel/Kconfig b/kernel/Kconfig
 @@ -33,4 +33,95 @@ config KPM
      select KALLSYMS
      select KALLSYMS_ALL
-
+ 
 +menu "KernelSU - SUSFS"
 +config KSU_SUSFS
 +    bool "KernelSU addon - SUSFS"
@@ -130,7 +130,7 @@ diff --git a/kernel/ksu.c b/kernel/ksu.c
 +#ifdef CONFIG_KSU_SUSFS
 +#include <linux/susfs.h>
 +#endif
-
+ 
  #include "allowlist.h"
  #include "feature.h"
  #include "klog.h" // IWYU pragma: keep
@@ -142,39 +142,39 @@ diff --git a/kernel/ksu.c b/kernel/ksu.c
  #include "supercalls.h"
  #include "ksu.h"
 @@ -54,12 +60,20 @@ int __init kernelsu_init(void)
-
+ 
  	sukisu_custom_config_init();
-
+ 
 +#ifndef CONFIG_KSU_SUSFS
  	ksu_syscall_hook_manager_init();
 +#else
 +	ksu_setuid_hook_init();
 +	ksu_sucompat_init();
 +#endif
-
+ 
  	ksu_allowlist_init();
-
+ 
  	ksu_throne_tracker_init();
-
+ 
 +#ifdef CONFIG_KSU_SUSFS
 +	susfs_init();
 +#endif
  	ksu_ksud_init();
-
+ 
  	ksu_file_wrapper_init();
 @@ -84,7 +98,12 @@ void kernelsu_exit(void)
-
+ 
  	ksu_ksud_exit();
-
+ 
 +#ifndef CONFIG_KSU_SUSFS
  	ksu_syscall_hook_manager_exit();
 +#else
 +	ksu_setuid_hook_exit();
 +	ksu_sucompat_exit();
 +#endif
-
+ 
  	sukisu_custom_config_exit();
-
+ 
 diff --git a/kernel/supercalls.c b/kernel/supercalls.c
 --- a/kernel/supercalls.c
 +++ b/kernel/supercalls.c
@@ -187,10 +187,10 @@ diff --git a/kernel/supercalls.c b/kernel/supercalls.c
 +#endif
  #include "throne_comm.h"
  #include "dynamic_manager.h"
-
+ 
 @@ -386,6 +388,7 @@ static int do_manage_mark(void __user *arg)
  	}
-
+ 
  	switch (cmd.operation) {
 +#ifndef CONFIG_KSU_SUSFS
  	case KSU_MARK_GET: {
@@ -222,14 +222,14 @@ diff --git a/kernel/allowlist.c b/kernel/allowlist.c
 +#ifndef CONFIG_KSU_SUSFS
  #include "syscall_hook_manager.h"
 +#endif
-
+ 
  #define FILE_MAGIC 0x7f4b5355 // ' KSU' in little-endian (with bit 7 set)
  #define FILE_FORMAT_VERSION 3
 diff --git a/kernel/app_profile.c b/kernel/app_profile.c
 --- a/kernel/app_profile.c
 +++ b/kernel/app_profile.c
 @@ -8,7 +8,9 @@
-
+ 
  #include "app_profile.h"
  #include "manager.h"
  #include "klog.h" // IWYU pragma: keep
@@ -237,16 +237,16 @@ diff --git a/kernel/app_profile.c b/kernel/app_profile.c
  #include "syscall_hook_manager.h"
 +#endif
  #include "throne_tracker.h"
-
+ 
  struct id_entry {
 @@ -103,8 +105,10 @@ bool ksu_set_app_profile(struct app_profile *profile, bool persist)
  		}
  	}
-
+ 
 +#ifndef CONFIG_KSU_SUSFS
  	// Update syscall hook manager
  	ksu_mark_all_process();
 +#endif
-
+ 
  	if (!persist)
  		return true;
