@@ -12,7 +12,21 @@ diff --git a/fs/open.c b/fs/open.c
  int do_truncate(struct user_namespace *mnt_userns, struct dentry *dentry,
  		loff_t length, unsigned int time_attrs, struct file *filp)
  {
-@@ -1196,6 +1200,14 @@ static long do_sys_openat2(int dfd, const char __user *filename,
+@@ -396,6 +400,14 @@ static int do_faccessat(int dfd, const char __user *filename, int mode, int flag
+ 	struct vfsmount *mnt;
+ 	int res;
+
++#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
++	// Block Unicode bypass attacks on Android/data and Android/obb
++	if (susfs_check_unicode_bypass(filename)) {
++		return -ENOENT;
++	}
++#endif
++
+ 	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
+ 		return -EINVAL;
+
+@@ -1196,6 +1208,14 @@ static long do_sys_openat2(int dfd, const char __user *filename,
  	if (unlikely(open_flags != op->open_flag))
  		return -EINVAL;
 
