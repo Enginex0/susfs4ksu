@@ -25,10 +25,10 @@ index 2ec76f6..e8abfcc 100644
  
  REPO_OWNER := ReSukiSU
 diff --git a/kernel/Kconfig b/kernel/Kconfig
-index c422bf8..10bca45 100644
+index c422bf8..9f491be 100644
 --- a/kernel/Kconfig
 +++ b/kernel/Kconfig
-@@ -33,4 +33,84 @@ config KPM
+@@ -33,4 +33,105 @@ config KPM
      select KALLSYMS
      select KALLSYMS_ALL
  
@@ -94,6 +94,27 @@ index c422bf8..10bca45 100644
 +    bool "Hide KSU SUSFS symbols"
 +    depends on KSU_SUSFS
 +    default y
++
++config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
++    bool "Spoof /proc/bootconfig or /proc/cmdline"
++    depends on KSU_SUSFS
++    default y
++    help
++      Spoof the output of /proc/bootconfig (GKI) or /proc/cmdline (non-GKI).
++
++config KSU_SUSFS_OPEN_REDIRECT
++    bool "Enable path open redirect"
++    depends on KSU_SUSFS
++    default y
++    help
++      Redirect a target path to another user-defined path when opened.
++
++config KSU_SUSFS_SUS_MAP
++    bool "Hide mmapped files from /proc/pid/maps"
++    depends on KSU_SUSFS
++    default y
++    help
++      Hide mmapped real file from /proc/pid/maps, smaps, map_files.
 +
 +config KSU_SUSFS_SUS_PROC
 +    bool "Hide processes from /proc"
