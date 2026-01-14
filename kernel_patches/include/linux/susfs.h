@@ -229,6 +229,11 @@ void susfs_add_sus_proc_comm(const char *comm);
 bool susfs_should_hide_proc(const char *comm);
 #endif
 
+/* Unicode security filter */
+#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
+bool susfs_check_unicode_bypass(const char __user *pathname);
+#endif
+
 void susfs_set_avc_log_spoofing(void __user **user_info);
 
 void susfs_get_enabled_features(void __user **user_info);

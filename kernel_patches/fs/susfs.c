@@ -961,6 +961,84 @@ bool susfs_should_hide_proc(const char *comm) {
 }
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_PROC
 
+/* Unicode security filter - blocks Unicode bypass attacks on Android/data and Android/obb */
+#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
+
+// Unicode bypass characters (invisible/zero-width characters used to bypass path checks)
+static const unsigned char UNICODE_BYPASS_CHARS[][4] = {
+	{ 0xC2, 0xAD, 0x00, 0x00 }, // U+00AD SOFT HYPHEN
+	{ 0xCD, 0x8F, 0x00, 0x00 }, // U+034F COMBINING GRAPHEME JOINER
+	{ 0xD8, 0x9C, 0x00, 0x00 }, // U+061C ARABIC LETTER MARK
+	{ 0xE1, 0x85, 0x9F, 0x00 }, // U+115F HANGUL CHOSEONG FILLER
+	{ 0xE1, 0x85, 0xA0, 0x00 }, // U+1160 HANGUL JUNGSEONG FILLER
+	{ 0xE1, 0xA0, 0x8E, 0x00 }, // U+180E MONGOLIAN VOWEL SEPARATOR
+	{ 0xE2, 0x80, 0x8B, 0x00 }, // U+200B ZERO WIDTH SPACE
+	{ 0xE2, 0x80, 0x8C, 0x00 }, // U+200C ZERO WIDTH NON-JOINER
+	{ 0xE2, 0x80, 0x8D, 0x00 }, // U+200D ZERO WIDTH JOINER
+	{ 0xE2, 0x80, 0x8E, 0x00 }, // U+200E LEFT-TO-RIGHT MARK
+	{ 0xE2, 0x80, 0x8F, 0x00 }, // U+200F RIGHT-TO-LEFT MARK
+	{ 0xE2, 0x81, 0xA0, 0x00 }, // U+2060 WORD JOINER
+	{ 0xE3, 0x85, 0xA4, 0x00 }, // U+3164 HANGUL FILLER
+	{ 0xEF, 0xBB, 0xBF, 0x00 }, // U+FEFF BYTE ORDER MARK
+	{ 0x00, 0x00, 0x00, 0x00 }  // End marker
+};
+
+// Check if path contains Unicode bypass characters targeting Android/data or Android/obb
+bool susfs_check_unicode_bypass(const char __user *pathname) {
+	char buf[256];
+	char clean_buf[256];
+	long len;
+	size_t clean_idx = 0;
+	int bypass_found = 0;
+	unsigned int uid_val;
+	size_t i, j;
+
+	if (!pathname)
+		return false;
+
+	len = strncpy_from_user(buf, pathname, sizeof(buf) - 1);
+	if (len <= 0)
+		return false;
+	buf[len] = '\0';
+
+	// Whitelist root (0) and system (1000)
+	uid_val = current_uid().val;
+	if (uid_val == 0 || uid_val == 1000)
+		return false;
+
+	// Build clean path (without bypass characters) and detect bypass attempts
+	for (i = 0; i < len; i++) {
+		bool is_bypass = false;
+		for (j = 0; UNICODE_BYPASS_CHARS[j][0] != 0; j++) {
+			const unsigned char *p = UNICODE_BYPASS_CHARS[j];
+			int p_len = (p[2] != 0) ? 3 : 2;
+			if (i + p_len <= len && memcmp(&buf[i], p, p_len) == 0) {
+				bypass_found++;
+				i += p_len - 1; // Skip bypass chars
+				is_bypass = true;
+				break;
+			}
+		}
+		if (!is_bypass && clean_idx < sizeof(clean_buf) - 1) {
+			clean_buf[clean_idx++] = buf[i];
+		}
+	}
+	clean_buf[clean_idx] = '\0';
+
+	if (bypass_found == 0)
+		return false;
+
+	// Check if cleaned path reveals Android/data or Android/obb access attempt
+	if ((!strstr(buf, "Android/data/") && strstr(clean_buf, "Android/data")) ||
+	    (!strstr(buf, "Android/obb/") && strstr(clean_buf, "Android/obb"))) {
+		SUSFS_LOGI("BLOCKED Unicode bypass: uid=%u path=%s\n", uid_val, buf);
+		return true; // Block this access
+	}
+
+	return false;
+}
+#endif // #ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
+
 /* susfs avc log spoofing */
 static DEFINE_SPINLOCK(susfs_spin_lock_set_avc_log_spoofing);
 extern bool susfs_is_avc_log_spoofing_enabled;
@@ -1062,6 +1140,11 @@ void susfs_get_enabled_features(void __user **user_info) {
 #endif
 #ifdef CONFIG_KSU_SUSFS_SUS_PROC
 	info->err = copy_config_to_buf("CONFIG_KSU_SUSFS_SUS_PROC\n", buf_ptr, &copied_size, SUSFS_ENABLED_FEATURES_SIZE);
+	if (info->err) goto out_copy_to_user;
+	buf_ptr = info->enabled_features + copied_size;
+#endif
+#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
+	info->err = copy_config_to_buf("CONFIG_KSU_SUSFS_UNICODE_FILTER\n", buf_ptr, &copied_size, SUSFS_ENABLED_FEATURES_SIZE);
 	if (info->err) goto out_copy_to_user;
 	buf_ptr = info->enabled_features + copied_size;
 #endif

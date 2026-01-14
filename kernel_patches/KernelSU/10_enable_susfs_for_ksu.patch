@@ -144,6 +144,16 @@ index cc4dbb3a..7382012b 100644
 +        - Effective only on zygote spawned umounted user app process.
 +        - Auto-hides ksud daemon at kernel initialization.
 +
++config KSU_SUSFS_UNICODE_FILTER
++    bool "Enable Unicode security filter for Android/data and Android/obb"
++    depends on KSU_SUSFS
++    default y
++    help
++        - Blocks Unicode bypass attacks on Android scoped storage
++        - Detects invisible Unicode characters in file paths
++        - Prevents apps from bypassing /sdcard/Android/data and /obb restrictions
++        - Effective on all non-root, non-system processes.
++
 +endmenu
  
  endmenu
