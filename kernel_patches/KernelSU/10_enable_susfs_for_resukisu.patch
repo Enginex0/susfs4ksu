@@ -1,6 +1,6 @@
 diff '--color=auto' -ruN original/kernel/Kbuild patched/kernel/Kbuild
---- original/kernel/Kbuild	2026-01-15 04:27:56.963367000 +0100
-+++ patched/kernel/Kbuild	2026-01-15 04:28:38.019977936 +0100
+--- original/kernel/Kbuild	2026-01-15 04:58:21.408051454 +0100
++++ patched/kernel/Kbuild	2026-01-15 04:58:28.055726074 +0100
 @@ -4,7 +4,9 @@
  kernelsu-objs += dynamic_manager.o
  kernelsu-objs += apk_sign.o
@@ -12,8 +12,8 @@ diff '--color=auto' -ruN original/kernel/Kbuild patched/kernel/Kbuild
  kernelsu-objs += pkg_observer.o
  kernelsu-objs += throne_tracker.o
 diff '--color=auto' -ruN original/kernel/Kconfig patched/kernel/Kconfig
---- original/kernel/Kconfig	2026-01-15 04:27:56.963367000 +0100
-+++ patched/kernel/Kconfig	2026-01-15 04:28:54.703621174 +0100
+--- original/kernel/Kconfig	2026-01-15 04:58:21.408051454 +0100
++++ patched/kernel/Kconfig	2026-01-15 04:58:28.055797389 +0100
 @@ -40,3 +40,110 @@
        If enabled, Hook required KernelSU syscalls with manually-patched function.
  
@@ -126,8 +126,8 @@ diff '--color=auto' -ruN original/kernel/Kconfig patched/kernel/Kconfig
 +
 +endmenu
 diff '--color=auto' -ruN original/kernel/allowlist.c patched/kernel/allowlist.c
---- original/kernel/allowlist.c	2026-01-15 04:27:56.963367000 +0100
-+++ patched/kernel/allowlist.c	2026-01-15 04:33:51.605272247 +0100
+--- original/kernel/allowlist.c	2026-01-15 04:58:21.408051454 +0100
++++ patched/kernel/allowlist.c	2026-01-15 04:58:28.055868102 +0100
 @@ -19,7 +19,9 @@
  #include "selinux/selinux.h"
  #include "allowlist.h"
@@ -150,8 +150,8 @@ diff '--color=auto' -ruN original/kernel/allowlist.c patched/kernel/allowlist.c
  
      return result;
 diff '--color=auto' -ruN original/kernel/app_profile.c patched/kernel/app_profile.c
---- original/kernel/app_profile.c	2026-01-15 04:27:56.963367000 +0100
-+++ patched/kernel/app_profile.c	2026-01-15 04:33:58.161132058 +0100
+--- original/kernel/app_profile.c	2026-01-15 04:58:21.408051454 +0100
++++ patched/kernel/app_profile.c	2026-01-15 04:59:06.017812818 +0100
 @@ -12,7 +12,9 @@
  #include "app_profile.h"
  #include "klog.h" // IWYU pragma: keep
@@ -162,9 +162,33 @@ diff '--color=auto' -ruN original/kernel/app_profile.c patched/kernel/app_profil
  #include "sucompat.h"
  
  #include "sulog.h"
+@@ -146,9 +148,11 @@
+     ksu_sulog_report_su_grant(current_euid().val, NULL, "escape_to_root");
+ #endif
+ 
++#ifndef CONFIG_KSU_SUSFS
+     for_each_thread (p, t) {
+         ksu_set_task_tracepoint_flag(t);
+     }
++#endif
+ }
+ 
+ void escape_to_root_for_init(void) {
+@@ -299,9 +303,11 @@
+ #if __SULOG_GATE
+     ksu_sulog_report_su_grant(target_uid, "cmd_su", "manual_escalation");
+ #endif
++#ifndef CONFIG_KSU_SUSFS
+     for_each_thread (p, t) {
+         ksu_set_task_tracepoint_flag(t);
+     }
++#endif
+     pr_info("cmd_su: privilege escalation completed for UID: %d, PID: %d\n", target_uid, target_pid);
+ }
+ #endif
 diff '--color=auto' -ruN original/kernel/ksu.c patched/kernel/ksu.c
---- original/kernel/ksu.c	2026-01-15 04:27:56.963367000 +0100
-+++ patched/kernel/ksu.c	2026-01-15 04:29:14.535197097 +0100
+--- original/kernel/ksu.c	2026-01-15 04:58:21.408051454 +0100
++++ patched/kernel/ksu.c	2026-01-15 04:58:28.056002998 +0100
 @@ -8,7 +8,13 @@
  #include "feature.h"
  #include "klog.h" // IWYU pragma: keep
@@ -226,8 +250,8 @@ diff '--color=auto' -ruN original/kernel/ksu.c patched/kernel/ksu.c
      sukisu_custom_config_exit();
  
 diff '--color=auto' -ruN original/kernel/ksud.c patched/kernel/ksud.c
---- original/kernel/ksud.c	2026-01-15 04:27:56.963367000 +0100
-+++ patched/kernel/ksud.c	2026-01-15 04:30:48.113196031 +0100
+--- original/kernel/ksud.c	2026-01-15 04:58:21.408051454 +0100
++++ patched/kernel/ksud.c	2026-01-15 04:58:28.056072122 +0100
 @@ -29,6 +29,12 @@
  bool ksu_module_mounted __read_mostly = false;
  bool ksu_boot_completed __read_mostly = false;
@@ -401,8 +425,8 @@ diff '--color=auto' -ruN original/kernel/ksud.c patched/kernel/ksud.c
      // this should be done before unregister vfs_read_kp
      // unregister_kprobe(&vfs_read_kp);
 diff '--color=auto' -ruN original/kernel/ksud.h patched/kernel/ksud.h
---- original/kernel/ksud.h	2026-01-15 04:27:56.963367000 +0100
-+++ patched/kernel/ksud.h	2026-01-15 04:30:56.701012389 +0100
+--- original/kernel/ksud.h	2026-01-15 04:58:21.408051454 +0100
++++ patched/kernel/ksud.h	2026-01-15 04:58:28.056153823 +0100
 @@ -1,8 +1,29 @@
  #ifndef __KSU_H_KSUD
  #define __KSU_H_KSUD
@@ -434,8 +458,8 @@ diff '--color=auto' -ruN original/kernel/ksud.h patched/kernel/ksud.h
  void ksu_ksud_exit();
  
 diff '--color=auto' -ruN original/kernel/selinux/rules.c patched/kernel/selinux/rules.c
---- original/kernel/selinux/rules.c	2026-01-15 04:27:56.963367000 +0100
-+++ patched/kernel/selinux/rules.c	2026-01-15 04:31:05.080833196 +0100
+--- original/kernel/selinux/rules.c	2026-01-15 04:58:21.408051454 +0100
++++ patched/kernel/selinux/rules.c	2026-01-15 04:58:28.056208762 +0100
 @@ -98,6 +98,13 @@
      // https://android-review.googlesource.com/c/platform/system/logging/+/3725346
      ksu_dontaudit(db, "untrusted_app", KERNEL_SU_DOMAIN, "dir", "getattr");
@@ -451,8 +475,8 @@ diff '--color=auto' -ruN original/kernel/selinux/rules.c patched/kernel/selinux/
  }
  
 diff '--color=auto' -ruN original/kernel/selinux/selinux.c patched/kernel/selinux/selinux.c
---- original/kernel/selinux/selinux.c	2026-01-15 04:27:56.963367000 +0100
-+++ patched/kernel/selinux/selinux.c	2026-01-15 04:31:21.740476947 +0100
+--- original/kernel/selinux/selinux.c	2026-01-15 04:58:21.408051454 +0100
++++ patched/kernel/selinux/selinux.c	2026-01-15 04:58:28.056275242 +0100
 @@ -163,3 +163,102 @@
      }
      return ksu_file_sid;
@@ -557,8 +581,8 @@ diff '--color=auto' -ruN original/kernel/selinux/selinux.c patched/kernel/selinu
 +}
 +#endif
 diff '--color=auto' -ruN original/kernel/selinux/selinux.h patched/kernel/selinux/selinux.h
---- original/kernel/selinux/selinux.h	2026-01-15 04:27:56.963367000 +0100
-+++ patched/kernel/selinux/selinux.h	2026-01-15 04:31:28.216338467 +0100
+--- original/kernel/selinux/selinux.h	2026-01-15 04:58:21.408051454 +0100
++++ patched/kernel/selinux/selinux.h	2026-01-15 04:58:28.056322365 +0100
 @@ -34,4 +34,22 @@
  
  void setup_ksu_cred();
@@ -583,8 +607,8 @@ diff '--color=auto' -ruN original/kernel/selinux/selinux.h patched/kernel/selinu
 +
  #endif
 diff '--color=auto' -ruN original/kernel/setuid_hook.c patched/kernel/setuid_hook.c
---- original/kernel/setuid_hook.c	2026-01-15 04:27:56.963367000 +0100
-+++ patched/kernel/setuid_hook.c	2026-01-15 04:32:01.099635292 +0100
+--- original/kernel/setuid_hook.c	2026-01-15 04:58:21.408051454 +0100
++++ patched/kernel/setuid_hook.c	2026-01-15 04:58:28.056382801 +0100
 @@ -39,10 +39,31 @@
  #include "selinux/selinux.h"
  #include "seccomp_cache.h"
@@ -704,8 +728,8 @@ diff '--color=auto' -ruN original/kernel/setuid_hook.c patched/kernel/setuid_hoo
  void ksu_setuid_hook_init(void)
  {
 diff '--color=auto' -ruN original/kernel/sucompat.c patched/kernel/sucompat.c
---- original/kernel/sucompat.c	2026-01-15 04:27:56.963367000 +0100
-+++ patched/kernel/sucompat.c	2026-01-15 04:32:25.575111910 +0100
+--- original/kernel/sucompat.c	2026-01-15 04:58:21.408051454 +0100
++++ patched/kernel/sucompat.c	2026-01-15 04:58:28.056451690 +0100
 @@ -22,6 +22,13 @@
  
  #include "sulog.h"
@@ -815,8 +839,8 @@ diff '--color=auto' -ruN original/kernel/sucompat.c patched/kernel/sucompat.c
  void ksu_sucompat_init()
  {
 diff '--color=auto' -ruN original/kernel/sucompat.h patched/kernel/sucompat.h
---- original/kernel/sucompat.h	2026-01-15 04:27:56.963367000 +0100
-+++ patched/kernel/sucompat.h	2026-01-15 04:32:36.518877892 +0100
+--- original/kernel/sucompat.h	2026-01-15 04:58:21.408051454 +0100
++++ patched/kernel/sucompat.h	2026-01-15 04:58:28.056505673 +0100
 @@ -10,9 +10,21 @@
  // Handler functions exported for hook_manager
  int ksu_handle_faccessat(int *dfd, const char __user **filename_user,
@@ -841,8 +865,8 @@ diff '--color=auto' -ruN original/kernel/sucompat.h patched/kernel/sucompat.h
  #endif
 \ No newline at end of file
 diff '--color=auto' -ruN original/kernel/supercalls.c patched/kernel/supercalls.c
---- original/kernel/supercalls.c	2026-01-15 04:27:56.963367000 +0100
-+++ patched/kernel/supercalls.c	2026-01-15 04:33:38.797546127 +0100
+--- original/kernel/supercalls.c	2026-01-15 04:58:21.408051454 +0100
++++ patched/kernel/supercalls.c	2026-01-15 04:58:28.056586006 +0100
 @@ -23,15 +23,25 @@
  #include "selinux/selinux.h"
  #include "objsec.h"
