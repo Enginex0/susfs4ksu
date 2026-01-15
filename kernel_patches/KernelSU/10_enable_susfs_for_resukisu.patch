@@ -13,16 +13,16 @@ index 2ec76f6..e8abfcc 100644
  kernelsu-objs += pkg_observer.o
  kernelsu-objs += throne_tracker.o
 @@ -33,6 +35,11 @@ ccflags-y += -I$(objtree)/security/selinux -include $(srctree)/include/uapi/asm-
- 
+
  obj-$(CONFIG_KSU) += kernelsu.o
- 
+
 +ifdef CONFIG_KSU_SUSFS
 +kernelsu-objs += susfs.o
 +ccflags-y += -DKSU_SUSFS
 +endif
 +
  obj-$(CONFIG_KPM) += kpm/
- 
+
  REPO_OWNER := ReSukiSU
 diff --git a/kernel/Kconfig b/kernel/Kconfig
 index c422bf8..9f491be 100644
@@ -31,7 +31,7 @@ index c422bf8..9f491be 100644
 @@ -33,4 +33,105 @@ config KPM
      select KALLSYMS
      select KALLSYMS_ALL
- 
+
 +menu "KernelSU - SUSFS"
 +config KSU_SUSFS
 +    bool "KernelSU addon - SUSFS"
@@ -151,7 +151,7 @@ index 4902a1f..bb251ea 100644
 @@ -20,6 +22,10 @@ struct cred *ksu_cred;
  #include "throne_comm.h"
  #include "dynamic_manager.h"
- 
+
 +#ifdef CONFIG_KSU_SUSFS
 +#include <linux/susfs.h>
 +#endif
@@ -160,27 +160,27 @@ index 4902a1f..bb251ea 100644
  {
  }
 @@ -57,7 +63,11 @@ int __init kernelsu_init(void)
- 
+
      sukisu_custom_config_init();
- 
+
 +#ifndef CONFIG_KSU_SUSFS
      ksu_syscall_hook_manager_init();
 +#else
 +    susfs_init();
 +#endif
- 
+
      ksu_allowlist_init();
- 
+
 @@ -86,7 +96,9 @@ void kernelsu_exit(void)
- 
+
      ksu_ksud_exit();
- 
+
 +#ifndef CONFIG_KSU_SUSFS
      ksu_syscall_hook_manager_exit();
 +#endif
- 
+
      sukisu_custom_config_exit();
- 
+
 diff --git a/kernel/supercalls.c b/kernel/supercalls.c
 index 0afb1e0..2dda155 100644
 --- a/kernel/supercalls.c
@@ -194,4 +194,27 @@ index 0afb1e0..2dda155 100644
 +#endif
  #include "throne_comm.h"
  #include "dynamic_manager.h"
- 
+
+@@ -391,6 +393,7 @@ static int do_manage_mark(void __user *arg)
+     }
+
+     switch (cmd.operation) {
++#ifndef CONFIG_KSU_SUSFS
+     case KSU_MARK_GET: {
+         // Get task mark status
+         ret = ksu_get_task_mark(cmd.pid);
+@@ -427,6 +430,14 @@ static int do_manage_mark(void __user *arg)
+         pr_info("manage_mark: refreshed running processes\n");
+         break;
+     }
++#else
++    case KSU_MARK_GET:
++    case KSU_MARK_MARK:
++    case KSU_MARK_UNMARK:
++    case KSU_MARK_REFRESH:
++        // SUSFS mode: mark management handled by SUSFS hooks
++        break;
++#endif
+     default: {
+         pr_err("manage_mark: invalid operation %u\n", cmd.operation);
+         return -EINVAL;
