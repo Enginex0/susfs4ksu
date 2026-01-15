@@ -261,13 +261,13 @@ diff '--color=auto' -ruN original/kernel/ksu.c patched/kernel/ksu.c
  
 diff '--color=auto' -ruN original/kernel/ksud.c patched/kernel/ksud.c
 --- original/kernel/ksud.c	2026-01-15 04:58:21.408051454 +0100
-+++ patched/kernel/ksud.c	2026-01-15 04:58:28.056072122 +0100
++++ patched/kernel/ksud.c	2026-01-15 06:00:06.766706815 +0100
 @@ -29,6 +29,12 @@
  bool ksu_module_mounted __read_mostly = false;
  bool ksu_boot_completed __read_mostly = false;
  
 +#ifdef CONFIG_KSU_SUSFS
-+bool ksu_vfs_read_hook __read_mostly = true;
++bool ksu_init_rc_hook __read_mostly = true;
 +bool ksu_execveat_hook __read_mostly = true;
 +bool ksu_input_hook __read_mostly = true;
 +#endif
@@ -275,7 +275,7 @@ diff '--color=auto' -ruN original/kernel/ksud.c patched/kernel/ksud.c
  static const char KERNEL_SU_RC[] =
      "\n"
  
-@@ -56,11 +62,11 @@
+@@ -56,12 +62,12 @@
  static void stop_execve_hook();
  static void stop_input_hook();
  
@@ -285,10 +285,12 @@ diff '--color=auto' -ruN original/kernel/ksud.c patched/kernel/ksud.c
  static struct work_struct stop_execve_hook_work;
  static struct work_struct stop_input_hook_work;
 -#else
+-bool ksu_vfs_read_hook __read_mostly = true;
 +#elif !defined(CONFIG_KSU_SUSFS)
- bool ksu_vfs_read_hook __read_mostly = true;
++bool ksu_init_rc_hook __read_mostly = true;
  bool ksu_execveat_hook __read_mostly = true;
  bool ksu_input_hook __read_mostly = true;
+ #endif
 @@ -131,6 +137,7 @@
      track_throne(true);
  }
@@ -339,19 +341,21 @@ diff '--color=auto' -ruN original/kernel/ksud.c patched/kernel/ksud.c
      return 0;
  }
  
-@@ -310,7 +331,11 @@
+@@ -310,8 +331,12 @@
  static int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr,
                                 size_t *count_ptr, loff_t **pos)
  {
 -#ifndef KSU_KPROBES_HOOK
+-    if (!ksu_vfs_read_hook) {
 +#ifdef CONFIG_KSU_SUSFS
-+    if (!ksu_vfs_read_hook) {
++    if (!ksu_init_rc_hook) {
 +        return 0;
 +    }
 +#elif !defined(KSU_KPROBES_HOOK)
-     if (!ksu_vfs_read_hook) {
++    if (!ksu_init_rc_hook) {
          return 0;
      }
+ #endif
 @@ -413,6 +438,14 @@
      return result;
  }
@@ -380,19 +384,23 @@ diff '--color=auto' -ruN original/kernel/ksud.c patched/kernel/ksud.c
      if (!ksu_input_hook) {
          return 0;
      }
-@@ -554,7 +591,10 @@
+@@ -554,18 +591,24 @@
  
  static void stop_vfs_read_hook()
  {
 -#ifdef KSU_KPROBES_HOOK
 +#ifdef CONFIG_KSU_SUSFS
-+    ksu_vfs_read_hook = false;
++    ksu_init_rc_hook = false;
 +    pr_info("stop vfs_read_hook\n");
 +#elif defined(KSU_KPROBES_HOOK)
      bool ret = schedule_work(&stop_vfs_read_work);
      pr_info("unregister vfs_read kprobe: %d!\n", ret);
  #else
-@@ -565,7 +605,10 @@
+-    ksu_vfs_read_hook = false;
++    ksu_init_rc_hook = false;
+     pr_info("stop vfs_read_hook\n");
+ #endif
+ }
  
  static void stop_execve_hook()
  {
