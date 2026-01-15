@@ -12,12 +12,11 @@ diff --git a/fs/proc/base.c b/fs/proc/base.c
  #include "../../lib/kstrtox.h"
 
  /* NOTE:
-@@ -3398,6 +3402,21 @@ struct dentry *proc_pid_lookup(struct dentry *dentry, unsigned int flags)
+@@ -3398,6 +3402,18 @@ struct dentry *proc_pid_lookup(struct dentry *dentry, unsigned int flags)
  	if (!task)
  		goto out;
 
 +#ifdef CONFIG_KSU_SUSFS_SUS_PROC
-+	// Block direct /proc/<pid> access for hidden processes
 +	{
 +		char comm[TASK_COMM_LEN];
 +		get_task_comm(comm, task);
@@ -31,19 +30,18 @@ diff --git a/fs/proc/base.c b/fs/proc/base.c
  	result = proc_pid_instantiate(dentry, task, NULL);
  	put_task_struct(task);
  out:
-@@ -3702,6 +3721,20 @@ int proc_pid_readdir(struct file *file, struct dir_context *ctx)
+ 	return result;
+ }
+@@ -3702,6 +3718,17 @@ int proc_pid_readdir(struct file *file, struct dir_context *ctx)
  		char name[10 + 1];
  		unsigned int len;
 
 +#ifdef CONFIG_KSU_SUSFS_SUS_PROC
-+		// Hide process from /proc enumeration
 +		if (iter.task) {
 +			char comm[TASK_COMM_LEN];
 +			get_task_comm(comm, iter.task);
 +			if (susfs_should_hide_proc(comm)) {
 +				iter = next_tgid(ns, iter);
-+				if (!iter.task)
-+					goto out;
 +				continue;
 +			}
 +		}
