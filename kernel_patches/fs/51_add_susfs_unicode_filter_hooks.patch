@@ -12,7 +12,7 @@ diff --git a/fs/open.c b/fs/open.c
  int do_truncate(struct user_namespace *mnt_userns, struct dentry *dentry,
  		loff_t length, unsigned int time_attrs, struct file *filp)
  {
-@@ -396,6 +400,13 @@ static int do_faccessat(int dfd, const char __user *filename, int mode, int flag
+@@ -396,6 +400,12 @@ static int do_faccessat(int dfd, const char __user *filename, int mode, int flag
  	struct vfsmount *mnt;
  	int res;
 
@@ -25,7 +25,7 @@ diff --git a/fs/open.c b/fs/open.c
  	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
  		return -EINVAL;
 
-@@ -1196,6 +1207,13 @@ static long do_sys_openat2(int dfd, const char __user *filename,
+@@ -1196,6 +1206,12 @@ static long do_sys_openat2(int dfd, const char __user *filename,
  	if (unlikely(open_flags != op->open_flag))
  		return -EINVAL;
 
@@ -52,7 +52,7 @@ diff --git a/fs/stat.c b/fs/stat.c
  #include "internal.h"
  #include "mount.h"
 
-@@ -217,6 +221,13 @@ int vfs_fstatat(int dfd, const char __user *filename,
+@@ -217,6 +221,12 @@ int vfs_fstatat(int dfd, const char __user *filename,
  {
  	int ret;
 
@@ -64,3 +64,4 @@ diff --git a/fs/stat.c b/fs/stat.c
 +
  	if (flag & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT | AT_EMPTY_PATH))
  		return -EINVAL;
+
