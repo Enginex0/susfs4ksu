@@ -151,8 +151,18 @@ diff '--color=auto' -ruN original/kernel/allowlist.c patched/kernel/allowlist.c
      return result;
 diff '--color=auto' -ruN original/kernel/app_profile.c patched/kernel/app_profile.c
 --- original/kernel/app_profile.c	2026-01-15 04:58:21.408051454 +0100
-+++ patched/kernel/app_profile.c	2026-01-15 04:59:06.017812818 +0100
-@@ -12,7 +12,9 @@
++++ patched/kernel/app_profile.c	2026-01-15 05:17:50.168176958 +0100
+@@ -3,7 +3,9 @@
+ #include <linux/sched.h>
+ #include <linux/sched/signal.h>
+ #include <linux/seccomp.h>
++#include <linux/slab.h>
+ #include <linux/thread_info.h>
++#include <linux/tty.h>
+ #include <linux/uidgid.h>
+ #include <linux/version.h>
+ #include "objsec.h"
+@@ -12,7 +14,9 @@
  #include "app_profile.h"
  #include "klog.h" // IWYU pragma: keep
  #include "selinux/selinux.h"
@@ -162,7 +172,7 @@ diff '--color=auto' -ruN original/kernel/app_profile.c patched/kernel/app_profil
  #include "sucompat.h"
  
  #include "sulog.h"
-@@ -146,9 +148,11 @@
+@@ -146,9 +150,11 @@
      ksu_sulog_report_su_grant(current_euid().val, NULL, "escape_to_root");
  #endif
  
@@ -174,7 +184,7 @@ diff '--color=auto' -ruN original/kernel/app_profile.c patched/kernel/app_profil
  }
  
  void escape_to_root_for_init(void) {
-@@ -299,9 +303,11 @@
+@@ -299,9 +305,11 @@
  #if __SULOG_GATE
      ksu_sulog_report_su_grant(target_uid, "cmd_su", "manual_escalation");
  #endif
