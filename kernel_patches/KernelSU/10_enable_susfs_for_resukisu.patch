@@ -12,18 +12,6 @@ index 2ec76f6..e8abfcc 100644
  kernelsu-objs += throne_tracker.o
  kernelsu-objs += pkg_observer.o
  kernelsu-objs += throne_tracker.o
-@@ -33,6 +35,11 @@ ccflags-y += -I$(objtree)/security/selinux -include $(srctree)/include/uapi/asm-
-
- obj-$(CONFIG_KSU) += kernelsu.o
-
-+ifdef CONFIG_KSU_SUSFS
-+kernelsu-objs += susfs.o
-+ccflags-y += -DKSU_SUSFS
-+endif
-+
- obj-$(CONFIG_KPM) += kpm/
-
- REPO_OWNER := ReSukiSU
 diff --git a/kernel/Kconfig b/kernel/Kconfig
 index c422bf8..9f491be 100644
 --- a/kernel/Kconfig
