@@ -1041,10 +1041,6 @@ static const unsigned char UNICODE_BYPASS_CHARS[][4] = {
 
 // Check if path contains Unicode bypass characters targeting Android/data or Android/obb
 bool susfs_check_unicode_bypass(const char __user *pathname) {
-	// Boot safety: don't filter until SUSFS is fully initialized
-	if (!susfs_unicode_filter_ready)
-		return false;
-
 	char buf[256];
 	char clean_buf[256];
 	long len;
@@ -1052,6 +1048,10 @@ bool susfs_check_unicode_bypass(const char __user *pathname) {
 	int bypass_found = 0;
 	unsigned int uid_val;
 	size_t i, j;
+
+	// Boot safety: don't filter until SUSFS is fully initialized
+	if (!susfs_unicode_filter_ready)
+		return false;
 
 	if (!pathname)
 		return false;
