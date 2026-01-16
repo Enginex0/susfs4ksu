@@ -24,8 +24,12 @@ bool susfs_is_log_enabled __read_mostly = true;
 #define SUSFS_LOGI(fmt, ...) if (susfs_is_log_enabled) pr_info("susfs:[%u][%d][%s] " fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)
 #define SUSFS_LOGE(fmt, ...) if (susfs_is_log_enabled) pr_err("susfs:[%u][%d][%s]" fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)
 #else
-#define SUSFS_LOGI(fmt, ...) 
-#define SUSFS_LOGE(fmt, ...) 
+#define SUSFS_LOGI(fmt, ...)
+#define SUSFS_LOGE(fmt, ...)
+#endif
+
+#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
+static bool susfs_unicode_filter_ready = false;
 #endif
 
 bool susfs_starts_with(const char *str, const char *prefix) {
@@ -1037,6 +1041,10 @@ static const unsigned char UNICODE_BYPASS_CHARS[][4] = {
 
 // Check if path contains Unicode bypass characters targeting Android/data or Android/obb
 bool susfs_check_unicode_bypass(const char __user *pathname) {
+	// Boot safety: don't filter until SUSFS is fully initialized
+	if (!susfs_unicode_filter_ready)
+		return false;
+
 	char buf[256];
 	char clean_buf[256];
 	long len;
@@ -1256,6 +1264,9 @@ void susfs_init(void) {
 #ifdef CONFIG_KSU_SUSFS_SUS_PROC
 	// Auto-hide ksud daemon from /proc
 	susfs_add_sus_proc_comm("ksud");
+#endif
+#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
+	susfs_unicode_filter_ready = true;
 #endif
 	SUSFS_LOGI("susfs is initialized! version: " SUSFS_VERSION " \n");
 }
