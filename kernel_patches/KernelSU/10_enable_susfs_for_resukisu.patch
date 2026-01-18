@@ -110,13 +110,6 @@ diff '--color=auto' -ruN original/kernel/Kconfig patched/kernel/Kconfig
 +    help
 +      Hide mmapped files from /proc/pid/maps.
 +
-+config KSU_SUSFS_SUS_PROC
-+    bool "Enable SUS_PROC"
-+    depends on KSU_SUSFS
-+    default y
-+    help
-+      Hide processes from /proc.
-+
 +config KSU_SUSFS_UNICODE_FILTER
 +    bool "Enable UNICODE_FILTER"
 +    depends on KSU_SUSFS
@@ -1042,12 +1035,6 @@ diff '--color=auto' -ruN original/kernel/supercalls.c patched/kernel/supercalls.
 +#ifdef CONFIG_KSU_SUSFS_SUS_MAP
 +        if (cmd == CMD_SUSFS_ADD_SUS_MAP) {
 +            susfs_add_sus_map(*arg);
-+            return 0;
-+        }
-+#endif
-+#ifdef CONFIG_KSU_SUSFS_SUS_PROC
-+        if (cmd == CMD_SUSFS_ADD_SUS_PROC) {
-+            susfs_add_sus_proc(*arg);
 +            return 0;
 +        }
 +#endif

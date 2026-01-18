@@ -838,133 +838,6 @@ out_copy_to_user:
 }
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
 
-/* sus_proc */
-#ifdef CONFIG_KSU_SUSFS_SUS_PROC
-static DEFINE_SPINLOCK(susfs_spin_lock_sus_proc);
-static LIST_HEAD(SUS_PROC_LIST);
-
-void susfs_add_sus_proc(void __user **user_info) {
-	struct st_susfs_sus_proc info = {0};
-	struct st_susfs_sus_proc_list *new_entry;
-	struct st_susfs_sus_proc_list *cursor;
-	bool found = false;
-
-	if (copy_from_user(&info, (struct st_susfs_sus_proc __user*)*user_info, sizeof(info))) {
-		info.err = -EFAULT;
-		goto out_copy_to_user;
-	}
-
-	if (info.target_comm[0] == '\0') {
-		info.err = -EINVAL;
-		goto out_copy_to_user;
-	}
-
-	// Check if comm already exists
-	spin_lock(&susfs_spin_lock_sus_proc);
-	list_for_each_entry(cursor, &SUS_PROC_LIST, list) {
-		if (!strncmp(cursor->target_comm, info.target_comm, SUSFS_MAX_LEN_COMM - 1)) {
-			found = true;
-			break;
-		}
-	}
-	spin_unlock(&susfs_spin_lock_sus_proc);
-
-	if (found) {
-		SUSFS_LOGI("comm '%s' already in SUS_PROC_LIST\n", info.target_comm);
-		info.err = 0;
-		goto out_copy_to_user;
-	}
-
-	new_entry = kmalloc(sizeof(struct st_susfs_sus_proc_list), GFP_KERNEL);
-	if (!new_entry) {
-		info.err = -ENOMEM;
-		goto out_copy_to_user;
-	}
-
-	strncpy(new_entry->target_comm, info.target_comm, SUSFS_MAX_LEN_COMM - 1);
-	new_entry->target_comm[SUSFS_MAX_LEN_COMM - 1] = '\0';
-	INIT_LIST_HEAD(&new_entry->list);
-
-	spin_lock(&susfs_spin_lock_sus_proc);
-	list_add_tail(&new_entry->list, &SUS_PROC_LIST);
-	spin_unlock(&susfs_spin_lock_sus_proc);
-
-	SUSFS_LOGI("target_comm: '%s' is successfully added to SUS_PROC_LIST\n", new_entry->target_comm);
-	info.err = 0;
-
-out_copy_to_user:
-	if (copy_to_user(&((struct st_susfs_sus_proc __user*)*user_info)->err, &info.err, sizeof(info.err))) {
-		info.err = -EFAULT;
-	}
-	SUSFS_LOGI("CMD_SUSFS_ADD_SUS_PROC -> ret: %d\n", info.err);
-}
-
-// Internal function for kernel-level adding without userspace
-void susfs_add_sus_proc_comm(const char *comm) {
-	struct st_susfs_sus_proc_list *new_entry;
-	struct st_susfs_sus_proc_list *cursor;
-	bool found = false;
-
-	if (!comm || comm[0] == '\0') {
-		return;
-	}
-
-	// Check if comm already exists
-	spin_lock(&susfs_spin_lock_sus_proc);
-	list_for_each_entry(cursor, &SUS_PROC_LIST, list) {
-		if (!strncmp(cursor->target_comm, comm, SUSFS_MAX_LEN_COMM - 1)) {
-			found = true;
-			break;
-		}
-	}
-	spin_unlock(&susfs_spin_lock_sus_proc);
-
-	if (found) {
-		return;
-	}
-
-	new_entry = kmalloc(sizeof(struct st_susfs_sus_proc_list), GFP_KERNEL);
-	if (!new_entry) {
-		return;
-	}
-
-	strncpy(new_entry->target_comm, comm, SUSFS_MAX_LEN_COMM - 1);
-	new_entry->target_comm[SUSFS_MAX_LEN_COMM - 1] = '\0';
-	INIT_LIST_HEAD(&new_entry->list);
-
-	spin_lock(&susfs_spin_lock_sus_proc);
-	list_add_tail(&new_entry->list, &SUS_PROC_LIST);
-	spin_unlock(&susfs_spin_lock_sus_proc);
-
-	SUSFS_LOGI("auto-added target_comm: '%s' to SUS_PROC_LIST\n", new_entry->target_comm);
-}
-
-bool susfs_should_hide_proc(const char *comm) {
-	struct st_susfs_sus_proc_list *cursor;
-
-	if (!comm || comm[0] == '\0') {
-		return false;
-	}
-
-	// Only hide from umounted processes (zygote spawned apps)
-	if (!susfs_is_current_proc_umounted()) {
-		return false;
-	}
-
-	spin_lock(&susfs_spin_lock_sus_proc);
-	list_for_each_entry(cursor, &SUS_PROC_LIST, list) {
-		if (!strncmp(cursor->target_comm, comm, SUSFS_MAX_LEN_COMM - 1)) {
-			spin_unlock(&susfs_spin_lock_sus_proc);
-			SUSFS_LOGI("hiding proc with comm '%s'\n", comm);
-			return true;
-		}
-	}
-	spin_unlock(&susfs_spin_lock_sus_proc);
-
-	return false;
-}
-#endif // #ifdef CONFIG_KSU_SUSFS_SUS_PROC
-
 /* Unicode security filter - blocks Unicode bypass attacks on Android/data and Android/obb */
 #ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
 
@@ -1198,11 +1071,6 @@ void susfs_get_enabled_features(void __user **user_info) {
 	if (info->err) goto out_copy_to_user;
 	buf_ptr = info->enabled_features + copied_size;
 #endif
-#ifdef CONFIG_KSU_SUSFS_SUS_PROC
-	info->err = copy_config_to_buf("CONFIG_KSU_SUSFS_SUS_PROC\n", buf_ptr, &copied_size, SUSFS_ENABLED_FEATURES_SIZE);
-	if (info->err) goto out_copy_to_user;
-	buf_ptr = info->enabled_features + copied_size;
-#endif
 #ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
 	info->err = copy_config_to_buf("CONFIG_KSU_SUSFS_UNICODE_FILTER\n", buf_ptr, &copied_size, SUSFS_ENABLED_FEATURES_SIZE);
 	if (info->err) goto out_copy_to_user;
@@ -1260,10 +1128,6 @@ out_copy_to_user:
 void susfs_init(void) {
 #ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
 	susfs_my_uname_init();
-#endif
-#ifdef CONFIG_KSU_SUSFS_SUS_PROC
-	// Auto-hide ksud daemon from /proc
-	susfs_add_sus_proc_comm("ksud");
 #endif
 #ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
 	susfs_unicode_filter_ready = true;

@@ -134,16 +134,6 @@ index cc4dbb3a..7382012b 100644
 +        - It may not be able to evade detections by apps that implement a good injection detection.
 +        - Effective only on zygote spawned umounted user app process.
 +
-+config KSU_SUSFS_SUS_PROC
-+    bool "Enable to hide suspicious processes from /proc"
-+    depends on KSU_SUSFS
-+    default y
-+    help
-+        - Hide user-defined processes from /proc enumeration
-+        - Prevents detection via ps, ls /proc, getdents
-+        - Effective only on zygote spawned umounted user app process.
-+        - Auto-hides ksud daemon at kernel initialization.
-+
 +config KSU_SUSFS_UNICODE_FILTER
 +    bool "Enable Unicode security filter for Android/data and Android/obb"
 +    depends on KSU_SUSFS
@@ -1185,12 +1175,6 @@ index f66be06b..fdea34e8 100644
 +            return 0;
 +        }
 +#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
-+#ifdef CONFIG_KSU_SUSFS_SUS_PROC
-+        if (cmd == CMD_SUSFS_ADD_SUS_PROC) {
-+            susfs_add_sus_proc(arg);
-+            return 0;
-+        }
-+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_PROC
 +        if (cmd == CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING) {
 +            susfs_set_avc_log_spoofing(arg);
 +            return 0;

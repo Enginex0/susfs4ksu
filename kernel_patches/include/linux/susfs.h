@@ -134,19 +134,6 @@ struct st_susfs_sus_map {
 };
 #endif
 
-/* sus_proc */
-#ifdef CONFIG_KSU_SUSFS_SUS_PROC
-struct st_susfs_sus_proc {
-	char                                    target_comm[SUSFS_MAX_LEN_COMM];
-	int                                     err;
-};
-
-struct st_susfs_sus_proc_list {
-	struct list_head                        list;
-	char                                    target_comm[SUSFS_MAX_LEN_COMM];
-};
-#endif
-
 /* avc log spoofing */
 struct st_susfs_avc_log_spoofing {
 	bool                                    enabled;
@@ -220,13 +207,6 @@ struct filename* susfs_get_redirected_path(unsigned long ino);
 /* sus_map */
 #ifdef CONFIG_KSU_SUSFS_SUS_MAP
 void susfs_add_sus_map(void __user **user_info);
-#endif
-
-/* sus_proc */
-#ifdef CONFIG_KSU_SUSFS_SUS_PROC
-void susfs_add_sus_proc(void __user **user_info);
-void susfs_add_sus_proc_comm(const char *comm);
-bool susfs_should_hide_proc(const char *comm);
 #endif
 
 /* Unicode security filter */
