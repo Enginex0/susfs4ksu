@@ -2160,7 +2160,7 @@ diff --git a/security/selinux/avc.c b/security/selinux/avc.c
 index 7804256b7539..a0190880431c 100644
 --- a/security/selinux/avc.c
 +++ b/security/selinux/avc.c
-@@ -47,6 +47,12 @@
+@@ -47,6 +47,14 @@
  #undef CREATE_TRACE_POINTS
  #include <trace/hooks/avc.h>
  
@@ -2168,17 +2168,20 @@ index 7804256b7539..a0190880431c 100644
 +extern u32 susfs_ksu_sid;
 +extern u32 susfs_priv_app_sid;
 +bool susfs_is_avc_log_spoofing_enabled = false;
++/* Weak symbol - if extras.c (custom AVC spoof) is present and active, defer to it */
++extern bool ksu_avc_spoof_active __attribute__((weak));
 +#endif
 +
  struct avc_entry {
  	u32			ssid;
  	u32			tsid;
-@@ -730,11 +736,22 @@ static void avc_audit_post_callback(struct audit_buffer *ab, void *a)
+@@ -730,11 +738,23 @@ static void avc_audit_post_callback(struct audit_buffer *ab, void *a)
  
  	rc = security_sid_to_context(sad->state, sad->tsid, &tcontext,
  				     &tcontext_len);
 +#ifdef CONFIG_KSU_SUSFS
-+	if (unlikely(sad->tsid == susfs_ksu_sid && susfs_is_avc_log_spoofing_enabled)) {
++	/* Skip SUSFS AVC spoofing if extras.c (custom AVC) is handling it */
++	if (unlikely(sad->tsid == susfs_ksu_sid && susfs_is_avc_log_spoofing_enabled && !ksu_avc_spoof_active)) {
 +		if (rc)
 +			audit_log_format(ab, " tsid=%d", susfs_priv_app_sid);
 +		else
