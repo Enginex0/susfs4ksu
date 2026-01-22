@@ -28,7 +28,7 @@
 #define CMD_SUSFS_SET_SDCARD_ROOT_PATH 0x55552
 #define CMD_SUSFS_ADD_SUS_PATH_LOOP 0x55553
 #define CMD_SUSFS_ADD_SUS_MOUNT 0x55560 /* deprecated */
-#define CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS 0x55561
+#define CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS 0x55561
 #define CMD_SUSFS_UMOUNT_FOR_ZYGOTE_ISO_SERVICE 0x55562 /* deprecated */
 #define CMD_SUSFS_ADD_SUS_KSTAT 0x55570
 #define CMD_SUSFS_UPDATE_SUS_KSTAT 0x55571
@@ -94,7 +94,7 @@ struct st_external_dir {
 	int                     err;
 };
 
-struct st_susfs_hide_sus_mnts_for_all_procs {
+struct st_susfs_hide_sus_mnts_for_non_su_procs {
 	bool                    enabled;
 	int                     err;
 };
@@ -238,7 +238,7 @@ static void print_help(void) {
 	log("      |--> To hide paths after /sdcard/, first you need to tell the susfs kernel where is the actual path '/sdcard' located, as it may vary on different phones\n");
 	log("      |--> Warning: All no root access granted user apps cannot see any sus paths in /sdcard/ unless you grant root access for the target app\n");
 	log("\n");
-	log("    hide_sus_mnts_for_all_procs <0|1>\n");
+	log("    hide_sus_mnts_for_non_su_procs <0|1>\n");
 	log("      |--> 0 -> Do not hide sus mounts for all processes but only non ksu process\n");
 	log("      |--> 1 -> Hide all sus mounts for all processes no matter they are ksu processes or not\n");
 	log("      |--> NOTE:\n");
@@ -364,9 +364,9 @@ int main(int argc, char *argv[]) {
 		syscall(SYS_reboot, KSU_INSTALL_MAGIC1, SUSFS_MAGIC, CMD_SUSFS_SET_SDCARD_ROOT_PATH, &info);
 		PRT_MSG_IF_CMD_NOT_SUPPORTED(info.err, CMD_SUSFS_SET_SDCARD_ROOT_PATH);
 		return info.err;
-	// hide_sus_mnts_for_all_procs
-	} else if (argc == 3 && !strcmp(argv[1], "hide_sus_mnts_for_all_procs")) {
-		struct st_susfs_hide_sus_mnts_for_all_procs info = {0};
+	// hide_sus_mnts_for_non_su_procs
+	} else if (argc == 3 && !strcmp(argv[1], "hide_sus_mnts_for_non_su_procs")) {
+		struct st_susfs_hide_sus_mnts_for_non_su_procs info = {0};
 
 		if (strcmp(argv[2], "0") && strcmp(argv[2], "1")) {
 			print_help();
@@ -374,8 +374,8 @@ int main(int argc, char *argv[]) {
 		}
 		info.enabled = atoi(argv[2]);
 		info.err = ERR_CMD_NOT_SUPPORTED;
-		syscall(SYS_reboot, KSU_INSTALL_MAGIC1, SUSFS_MAGIC, CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS, &info);
-		PRT_MSG_IF_CMD_NOT_SUPPORTED(info.err, CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS);
+		syscall(SYS_reboot, KSU_INSTALL_MAGIC1, SUSFS_MAGIC, CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS, &info);
+		PRT_MSG_IF_CMD_NOT_SUPPORTED(info.err, CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS);
 		return info.err;
 	// add_sus_kstat_statically
 	} else if (argc == 15 && !strcmp(argv[1], "add_sus_kstat_statically")) {
