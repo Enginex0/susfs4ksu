@@ -692,8 +692,9 @@ index dd9980f3fd9b..da9fbb6d7075 100644
 +		mnt->mnt_count = 1;
 +		mnt->mnt_writers = 0;
 +#endif
-+		// Makes ida_free() easier to determine whether it should free the mnt_id or not
++#ifdef CONFIG_KSU_SUSFS
 +		mnt->mnt.susfs_mnt_id_backup = DEFAULT_KSU_MNT_ID;
++#endif
 +
 +		INIT_HLIST_NODE(&mnt->mnt_hash);
 +		INIT_LIST_HEAD(&mnt->mnt_child);
@@ -744,8 +745,9 @@ index dd9980f3fd9b..da9fbb6d7075 100644
 +		mnt->mnt_count = 1;
 +		mnt->mnt_writers = 0;
 +#endif
-+		// Makes ida_free() easier to determine whether it should free the mnt_id or not
++#ifdef CONFIG_KSU_SUSFS
 +		mnt->mnt.susfs_mnt_id_backup = DEFAULT_KSU_MNT_ID;
++#endif
 +
 +		INIT_HLIST_NODE(&mnt->mnt_hash);
 +		INIT_LIST_HEAD(&mnt->mnt_child);
