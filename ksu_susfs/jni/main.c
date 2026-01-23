@@ -33,6 +33,7 @@
 #define CMD_SUSFS_ADD_SUS_KSTAT 0x55570
 #define CMD_SUSFS_UPDATE_SUS_KSTAT 0x55571
 #define CMD_SUSFS_ADD_SUS_KSTAT_STATICALLY 0x55572
+#define CMD_SUSFS_ADD_SUS_KSTAT_REDIRECT 0x55573
 #define CMD_SUSFS_ADD_TRY_UMOUNT 0x55580 /* deprecated */
 #define CMD_SUSFS_SET_UNAME 0x55590
 #define CMD_SUSFS_ENABLE_LOG 0x555a0
@@ -103,6 +104,24 @@ struct st_susfs_sus_kstat {
 	bool                    is_statically;
 	unsigned long           target_ino; // the ino after bind mounted or overlayed
 	char                    target_pathname[SUSFS_MAX_LEN_PATHNAME];
+	unsigned long           spoofed_ino;
+	unsigned long           spoofed_dev;
+	unsigned int            spoofed_nlink;
+	long long               spoofed_size;
+	long                    spoofed_atime_tv_sec;
+	long                    spoofed_mtime_tv_sec;
+	long                    spoofed_ctime_tv_sec;
+	long                    spoofed_atime_tv_nsec;
+	long                    spoofed_mtime_tv_nsec;
+	long                    spoofed_ctime_tv_nsec;
+	unsigned long           spoofed_blksize;
+	unsigned long long      spoofed_blocks;
+	int                     err;
+};
+
+struct st_susfs_sus_kstat_redirect {
+	char                    virtual_pathname[SUSFS_MAX_LEN_PATHNAME];
+	char                    real_pathname[SUSFS_MAX_LEN_PATHNAME];
 	unsigned long           spoofed_ino;
 	unsigned long           spoofed_dev;
 	unsigned int            spoofed_nlink;
@@ -256,6 +275,12 @@ static void print_help(void) {
 	log("      |--> e.g., %s add_sus_kstat_statically '/system/addon.d' 'default' 'default' 'default' 'default'\\\n", TAG);
 	log("                    '1712592355' 'default' '1712592355' 'default' '1712592355' 'default'\\\n");
 	log("                    'default' 'default'\n");
+	log("\n");
+	log("    add_sus_kstat_redirect <vpath> <rpath> <ino> <dev> <nlink> <size> <atime> <atime_ns> <mtime> <mtime_ns> <ctime> <ctime_ns> <blocks> <blksize>\n");
+	log("      |--> Redirect stat calls for <vpath> to use <rpath> with spoofed kstat values\n");
+	log("      |--> <vpath>: virtual pathname that apps query\n");
+	log("      |--> <rpath>: real pathname where file actually lives\n");
+	log("      |--> All 12 numeric kstat fields must be provided explicitly (no 'default' support)\n");
 	log("\n");
 	log("    add_sus_kstat </path/of/file_or_directory>\n");
 	log("      |--> Add the desired path BEFORE it gets bind mounted or overlayed, this is used for storing original stat info in kernel memory\n");
@@ -508,6 +533,31 @@ int main(int argc, char *argv[]) {
 		info.err = ERR_CMD_NOT_SUPPORTED;
 		syscall(SYS_reboot, KSU_INSTALL_MAGIC1, SUSFS_MAGIC, CMD_SUSFS_ADD_SUS_KSTAT_STATICALLY, &info);
 		PRT_MSG_IF_CMD_NOT_SUPPORTED(info.err, CMD_SUSFS_ADD_SUS_KSTAT_STATICALLY);
+		return info.err;
+	// add_sus_kstat_redirect
+	} else if (argc == 16 && !strcmp(argv[1], "add_sus_kstat_redirect")) {
+		struct st_susfs_sus_kstat_redirect info = {0};
+		char* endptr;
+
+		strncpy(info.virtual_pathname, argv[2], SUSFS_MAX_LEN_PATHNAME-1);
+		strncpy(info.real_pathname, argv[3], SUSFS_MAX_LEN_PATHNAME-1);
+
+		info.spoofed_ino = strtoul(argv[4], &endptr, 10);
+		info.spoofed_dev = strtoul(argv[5], &endptr, 10);
+		info.spoofed_nlink = strtoul(argv[6], &endptr, 10);
+		info.spoofed_size = strtoll(argv[7], &endptr, 10);
+		info.spoofed_atime_tv_sec = strtol(argv[8], &endptr, 10);
+		info.spoofed_atime_tv_nsec = strtol(argv[9], &endptr, 10);
+		info.spoofed_mtime_tv_sec = strtol(argv[10], &endptr, 10);
+		info.spoofed_mtime_tv_nsec = strtol(argv[11], &endptr, 10);
+		info.spoofed_ctime_tv_sec = strtol(argv[12], &endptr, 10);
+		info.spoofed_ctime_tv_nsec = strtol(argv[13], &endptr, 10);
+		info.spoofed_blocks = strtoull(argv[14], &endptr, 10);
+		info.spoofed_blksize = strtoul(argv[15], &endptr, 10);
+
+		info.err = ERR_CMD_NOT_SUPPORTED;
+		syscall(SYS_reboot, KSU_INSTALL_MAGIC1, SUSFS_MAGIC, CMD_SUSFS_ADD_SUS_KSTAT_REDIRECT, &info);
+		PRT_MSG_IF_CMD_NOT_SUPPORTED(info.err, CMD_SUSFS_ADD_SUS_KSTAT_REDIRECT);
 		return info.err;
 	// add_sus_kstat
 	} else if (argc == 3 && !strcmp(argv[1], "add_sus_kstat")) {

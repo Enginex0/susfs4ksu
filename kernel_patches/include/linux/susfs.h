@@ -82,6 +82,24 @@ struct st_susfs_sus_kstat_hlist {
 	struct st_susfs_sus_kstat               info;
 	struct hlist_node                       node;
 };
+
+struct st_susfs_sus_kstat_redirect {
+	char                                    virtual_pathname[SUSFS_MAX_LEN_PATHNAME];
+	char                                    real_pathname[SUSFS_MAX_LEN_PATHNAME];
+	unsigned long                           spoofed_ino;
+	unsigned long                           spoofed_dev;
+	unsigned int                            spoofed_nlink;
+	long long                               spoofed_size;
+	long                                    spoofed_atime_tv_sec;
+	long                                    spoofed_mtime_tv_sec;
+	long                                    spoofed_ctime_tv_sec;
+	long                                    spoofed_atime_tv_nsec;
+	long                                    spoofed_mtime_tv_nsec;
+	long                                    spoofed_ctime_tv_nsec;
+	unsigned long                           spoofed_blksize;
+	unsigned long long                      spoofed_blocks;
+	int                                     err;
+};
 #endif
 
 /* spoof_uname */
@@ -176,6 +194,7 @@ void susfs_set_hide_sus_mnts_for_non_su_procs(void __user **user_info);
 /* sus_kstat */
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 void susfs_add_sus_kstat(void __user **user_info);
+void susfs_add_sus_kstat_redirect(void __user **user_info);
 void susfs_update_sus_kstat(void __user **user_info);
 void susfs_sus_ino_for_generic_fillattr(unsigned long ino, struct kstat *stat);
 void susfs_sus_ino_for_show_map_vma(unsigned long ino, dev_t *out_dev, unsigned long *out_ino);
