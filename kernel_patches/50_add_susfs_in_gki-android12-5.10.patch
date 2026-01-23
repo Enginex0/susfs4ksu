@@ -663,7 +663,7 @@ index dd9980f3fd9b..da9fbb6d7075 100644
  	ida_free(&mnt_group_ida, mnt->mnt_group_id);
  	mnt->mnt_group_id = 0;
  }
-@@ -172,6 +231,110 @@ int mnt_get_count(struct mount *mnt)
+@@ -172,6 +231,112 @@ int mnt_get_count(struct mount *mnt)
  #endif
  }
  
@@ -1953,10 +1953,10 @@ index c6a2e10983f8..9370769a257d 100644
  	if (flags & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT | AT_EMPTY_PATH |
  		      AT_STATX_SYNC_TYPE))
  		return -EINVAL;
-@@ -363,6 +404,11 @@ SYSCALL_DEFINE2(newlstat, const char __user *, filename,
+@@ -363,4 +404,9 @@ SYSCALL_DEFINE2(newlstat, const char __user *, filename,
  	return cp_new_stat(&stat, statbuf);
  }
-
+ 
 +#ifdef CONFIG_KSU_SUSFS
 +extern bool ksu_init_rc_hook __read_mostly;
 +extern void ksu_handle_sys_newfstatat(int fd, loff_t *kstat_size_ptr);
