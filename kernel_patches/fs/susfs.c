@@ -535,6 +535,8 @@ void susfs_add_sus_kstat_redirect(void __user **user_info) {
 #endif /* defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64) */
 
 	// Resolve VIRTUAL path (original system file) - non-fatal if fails
+	pr_info("susfs_kstat_redirect: ENTRY vpath='%s' rpath='%s'\n",
+	        info.virtual_pathname, info.real_pathname);
 	if (!kern_path(info.virtual_pathname, 0, &p_virtual)) {
 		inode_virtual = d_inode(p_virtual.dentry);
 		if (inode_virtual) {
@@ -545,13 +547,13 @@ void susfs_add_sus_kstat_redirect(void __user **user_info) {
 				spin_unlock(&inode_virtual->i_lock);
 			}
 			virtual_path_resolved = true;
-			SUSFS_LOGI("virtual path '%s' resolved, ino: %lu\n",
-			           info.virtual_pathname, virtual_ino);
+			pr_info("susfs_kstat_redirect: VPATH_OK ino=%lu flagged='%s'\n",
+			        virtual_ino, info.virtual_pathname);
 		}
 		path_put(&p_virtual);
 	} else {
-		SUSFS_LOGI("virtual path '%s' not found (new file from module)\n",
-		           info.virtual_pathname);
+		pr_info("susfs_kstat_redirect: VPATH_MISSING '%s' (new file)\n",
+		        info.virtual_pathname);
 	}
 
 	// Resolve REAL path (replacement file) - must succeed
@@ -600,6 +602,8 @@ void susfs_add_sus_kstat_redirect(void __user **user_info) {
 	spin_lock(&susfs_spin_lock_sus_kstat);
 	hash_add(SUS_KSTAT_HLIST, &new_entry->node, new_entry->target_ino);
 	spin_unlock(&susfs_spin_lock_sus_kstat);
+	pr_info("susfs_kstat_redirect: RPATH_OK ino=%lu dev=%lu '%s'\n",
+	        new_entry->target_ino, new_entry->info.spoofed_dev, info.real_pathname);
 
 	// Add hash entry for VIRTUAL (original) inode if different from real
 	if (virtual_path_resolved && virtual_ino != 0 && virtual_ino != new_entry->target_ino) {
@@ -613,11 +617,14 @@ void susfs_add_sus_kstat_redirect(void __user **user_info) {
 			hash_add(SUS_KSTAT_HLIST, &virtual_entry->node, virtual_ino);
 			spin_unlock(&susfs_spin_lock_sus_kstat);
 
-			SUSFS_LOGI("DUAL hash entries: virtual_ino=%lu, real_ino=%lu for '%s'\n",
-			           virtual_ino, new_entry->target_ino, info.virtual_pathname);
+			pr_info("susfs_kstat_redirect: DUAL_INODE vino=%lu rino=%lu '%s'\n",
+			        virtual_ino, new_entry->target_ino, info.virtual_pathname);
 		} else {
-			SUSFS_LOGE("failed to allocate virtual_entry for dual-inode\n");
+			pr_err("susfs_kstat_redirect: ALLOC_FAIL virtual_entry\n");
 		}
+	} else if (virtual_path_resolved && virtual_ino == new_entry->target_ino) {
+		pr_info("susfs_kstat_redirect: SAME_INODE ino=%lu '%s'\n",
+		        virtual_ino, info.virtual_pathname);
 	}
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
@@ -642,7 +649,7 @@ out_copy_to_user:
 	if (copy_to_user(&((struct st_susfs_sus_kstat_redirect __user*)*user_info)->err, &info.err, sizeof(info.err))) {
 		info.err = -EFAULT;
 	}
-	SUSFS_LOGI("CMD_SUSFS_ADD_SUS_KSTAT_REDIRECT -> ret: %d\n", info.err);
+	pr_info("susfs_kstat_redirect: EXIT ret=%d vpath='%s'\n", info.err, info.virtual_pathname);
 }
 
 void susfs_update_sus_kstat(void __user **user_info) {
