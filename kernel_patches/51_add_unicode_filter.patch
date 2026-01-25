@@ -1,79 +1,157 @@
-From: Claude Code <noreply@anthropic.com>
-Subject: [PATCH] Add Unicode filter hooks to kernel syscalls
-
-Add hooks for the Unicode filter in fs/open.c and fs/stat.c.
-The filter function (susfs_check_unicode_bypass) is provided by
-susfs.c which is copied from the susfs4ksu repo during build.
-
-Hooks added:
-- fs/open.c: do_faccessat, do_sys_openat2
-- fs/stat.c: vfs_statx
-
-Signed-off-by: Claude Code <noreply@anthropic.com>
----
- fs/open.c |   17 +++++++++++++++++
- fs/stat.c |   12 ++++++++++++
- 2 files changed, 29 insertions(+)
-
---- a/fs/open.c
-+++ b/fs/open.c
-@@ -35,6 +35,10 @@
- #include "internal.h"
- #include <trace/hooks/syscall_check.h>
-
-+#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
+diff --git a/fs/namei.c b/fs/namei.c
+--- a/fs/namei.c
++++ b/fs/namei.c
+@@ -39,6 +39,9 @@
+ #include <linux/bitops.h>
+ #include <linux/init_task.h>
+ #include <linux/uaccess.h>
++#ifdef CONFIG_KSU_SUSFS
 +#include <linux/susfs.h>
 +#endif
+
+ #include "internal.h"
+ #include "mount.h"
+@@ -3806,6 +3809,12 @@ static long do_mkdirat(int dfd, const char __user *pathname, umode_t mode)
+ 	int error;
+ 	unsigned int lookup_flags = LOOKUP_DIRECTORY;
+
++#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
++	if (susfs_check_unicode_bypass(pathname)) {
++		return -EPERM;
++	}
++#endif
 +
- int do_truncate(struct dentry *dentry, loff_t length, unsigned int time_attrs,
- 	struct file *filp)
+ retry:
+ 	dentry = user_path_create(dfd, pathname, &path, lookup_flags);
+ 	if (IS_ERR(dentry))
+@@ -4076,6 +4085,12 @@ SYSCALL_DEFINE3(unlinkat, int, dfd, const char __user *, pathname, int, flag)
+ 	if ((flag & ~AT_REMOVEDIR) != 0)
+ 		return -EINVAL;
+
++#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
++	if (susfs_check_unicode_bypass(pathname)) {
++		return -EPERM;
++	}
++#endif
++
+ 	if (flag & AT_REMOVEDIR)
+ 		return do_rmdir(dfd, getname(pathname));
+ 	return do_unlinkat(dfd, getname(pathname));
+@@ -4117,6 +4132,12 @@ static long do_symlinkat(const char __user *oldname, int newdfd,
+ 	struct path path;
+ 	unsigned int lookup_flags = 0;
+
++#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
++	if (susfs_check_unicode_bypass(newname)) {
++		return -EPERM;
++	}
++#endif
++
+ 	from = getname(oldname);
+ 	if (IS_ERR(from))
+ 		return PTR_ERR(from);
+@@ -4249,6 +4270,12 @@ static int do_linkat(int olddfd, const char __user *oldname, int newdfd,
+ 	int how = 0;
+ 	int error;
+
++#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
++	if (susfs_check_unicode_bypass(newname)) {
++		return -EPERM;
++	}
++#endif
++
+ 	if ((flags & ~(AT_SYMLINK_FOLLOW | AT_EMPTY_PATH)) != 0)
+ 		return -EINVAL;
+ 	/*
+@@ -4640,6 +4667,13 @@ put_both:
+ SYSCALL_DEFINE5(renameat2, int, olddfd, const char __user *, oldname,
+ 		int, newdfd, const char __user *, newname, unsigned int, flags)
  {
-@@ -398,6 +402,11 @@ static long do_faccessat(int dfd, const
++#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
++	if (susfs_check_unicode_bypass(oldname) ||
++	    susfs_check_unicode_bypass(newname)) {
++		return -EPERM;
++	}
++#endif
++
+ 	return do_renameat2(olddfd, getname(oldname), newdfd, getname(newname),
+ 				flags);
+ }
+diff --git a/fs/open.c b/fs/open.c
+--- a/fs/open.c
++++ b/fs/open.c
+@@ -32,6 +32,9 @@
+ #include <linux/ima.h>
+ #include <linux/dnotify.h>
+ #include <linux/compat.h>
++#ifdef CONFIG_KSU_SUSFS
++#include <linux/susfs.h>
++#endif
+
+ #include "internal.h"
+ #include <trace/hooks/syscall_check.h>
+@@ -402,6 +405,12 @@ static long do_faccessat(int dfd, const char __user *filename, int mode, int fla
  	unsigned int lookup_flags = LOOKUP_FOLLOW;
  	const struct cred *old_cred = NULL;
 
 +#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
-+	if (susfs_check_unicode_bypass(filename))
-+		return -ENOENT;
++	if (susfs_check_unicode_bypass(filename)) {
++		return -EPERM;
++	}
 +#endif
 +
  	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
  		return -EINVAL;
 
-@@ -1201,6 +1210,11 @@ static long do_sys_openat2(int dfd, cons
+@@ -1204,6 +1213,12 @@ static long do_sys_openat2(int dfd, const char __user *filename,
+ 	struct open_flags op;
  	int fd = build_open_flags(how, &op);
  	struct filename *tmp;
-
-+#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
-+	if (susfs_check_unicode_bypass(filename))
-+		return -ENOENT;
-+#endif
 +
++#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
++	if (susfs_check_unicode_bypass(filename)) {
++		return -EPERM;
++	}
++#endif
+
  	if (fd)
  		return fd;
-
+diff --git a/fs/stat.c b/fs/stat.c
 --- a/fs/stat.c
 +++ b/fs/stat.c
-@@ -22,6 +22,10 @@
-
- #include "internal.h"
- #include "mount.h"
-+
-+#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
+@@ -17,6 +17,9 @@
+ #include <linux/syscalls.h>
+ #include <linux/pagemap.h>
+ #include <linux/compat.h>
++#ifdef CONFIG_KSU_SUSFS
 +#include <linux/susfs.h>
 +#endif
 
- /**
-  * generic_fillattr - Fill in the basic attributes from the inode struct
-@@ -174,6 +178,11 @@ static int vfs_statx(int dfd, const char
+ #include <linux/uaccess.h>
+ #include <asm/unistd.h>
+@@ -177,6 +180,12 @@ static int vfs_statx(int dfd, const char __user *filename, int flags,
  	unsigned lookup_flags = 0;
  	int error;
 
 +#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
-+	if (filename && susfs_check_unicode_bypass(filename))
-+		return -ENOENT;
++	if (susfs_check_unicode_bypass(filename)) {
++		return -EPERM;
++	}
 +#endif
 +
  	if (flags & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT | AT_EMPTY_PATH |
  		      AT_STATX_SYNC_TYPE))
  		return -EINVAL;
+@@ -406,6 +415,12 @@ static int do_readlinkat(int dfd, const char __user *pathname,
+ 	int empty = 0;
+ 	unsigned int lookup_flags = LOOKUP_EMPTY;
+
++#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
++	if (susfs_check_unicode_bypass(pathname)) {
++		return -EPERM;
++	}
++#endif
++
+ 	if (bufsiz <= 0)
+ 		return -EINVAL;
+
