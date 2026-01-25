@@ -237,4 +237,8 @@ void susfs_show_version(void __user **user_info);
 /* susfs_init */
 void susfs_init(void);
 
+#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
+bool susfs_check_unicode_bypass(const char __user *filename);
+#endif
+
 #endif
