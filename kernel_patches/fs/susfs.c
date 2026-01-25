@@ -535,8 +535,8 @@ void susfs_add_sus_kstat_redirect(void __user **user_info) {
 #endif /* defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64) */
 
 	// Resolve VIRTUAL path (original system file) - non-fatal if fails
-	pr_info("susfs_kstat_redirect: ENTRY vpath='%s' rpath='%s'\n",
-	        info.virtual_pathname, info.real_pathname);
+	SUSFS_LOGI("kstat_redirect: ENTRY vpath='%s' rpath='%s'\n",
+	           info.virtual_pathname, info.real_pathname);
 	if (!kern_path(info.virtual_pathname, 0, &p_virtual)) {
 		inode_virtual = d_inode(p_virtual.dentry);
 		if (inode_virtual) {
@@ -547,13 +547,13 @@ void susfs_add_sus_kstat_redirect(void __user **user_info) {
 				spin_unlock(&inode_virtual->i_lock);
 			}
 			virtual_path_resolved = true;
-			pr_info("susfs_kstat_redirect: VPATH_OK ino=%lu flagged='%s'\n",
-			        virtual_ino, info.virtual_pathname);
+			SUSFS_LOGI("kstat_redirect: VPATH_OK ino=%lu flagged='%s'\n",
+			           virtual_ino, info.virtual_pathname);
 		}
 		path_put(&p_virtual);
 	} else {
-		pr_info("susfs_kstat_redirect: VPATH_MISSING '%s' (new file)\n",
-		        info.virtual_pathname);
+		SUSFS_LOGI("kstat_redirect: VPATH_MISSING '%s' (new file)\n",
+		           info.virtual_pathname);
 	}
 
 	// Resolve REAL path (replacement file) - must succeed
@@ -598,33 +598,37 @@ void susfs_add_sus_kstat_redirect(void __user **user_info) {
 
 	path_put(&p_real);
 
-	// Add hash entry for REAL (replacement) inode
-	spin_lock(&susfs_spin_lock_sus_kstat);
-	hash_add(SUS_KSTAT_HLIST, &new_entry->node, new_entry->target_ino);
-	spin_unlock(&susfs_spin_lock_sus_kstat);
-	pr_info("susfs_kstat_redirect: RPATH_OK ino=%lu dev=%lu '%s'\n",
-	        new_entry->target_ino, new_entry->info.spoofed_dev, info.real_pathname);
-
-	// Add hash entry for VIRTUAL (original) inode if different from real
+	// Pre-allocate virtual entry if needed (before acquiring lock)
 	if (virtual_path_resolved && virtual_ino != 0 && virtual_ino != new_entry->target_ino) {
 		virtual_entry = kzalloc(sizeof(struct st_susfs_sus_kstat_hlist), GFP_KERNEL);
-		if (virtual_entry) {
-			memcpy(&virtual_entry->info, &new_entry->info, sizeof(new_entry->info));
-			virtual_entry->target_ino = virtual_ino;
-			virtual_entry->info.target_ino = virtual_ino;
-
-			spin_lock(&susfs_spin_lock_sus_kstat);
-			hash_add(SUS_KSTAT_HLIST, &virtual_entry->node, virtual_ino);
-			spin_unlock(&susfs_spin_lock_sus_kstat);
-
-			pr_info("susfs_kstat_redirect: DUAL_INODE vino=%lu rino=%lu '%s'\n",
-			        virtual_ino, new_entry->target_ino, info.virtual_pathname);
-		} else {
-			pr_err("susfs_kstat_redirect: ALLOC_FAIL virtual_entry\n");
+		if (!virtual_entry) {
+			SUSFS_LOGE("kstat_redirect: ALLOC_FAIL virtual_entry, aborting\n");
+			kfree(new_entry);
+			info.err = -ENOMEM;
+			goto out_copy_to_user;
 		}
+		memcpy(&virtual_entry->info, &new_entry->info, sizeof(new_entry->info));
+		virtual_entry->target_ino = virtual_ino;
+		virtual_entry->info.target_ino = virtual_ino;
+	}
+
+	// Add both entries atomically under single lock
+	spin_lock(&susfs_spin_lock_sus_kstat);
+	hash_add(SUS_KSTAT_HLIST, &new_entry->node, new_entry->target_ino);
+	if (virtual_entry) {
+		hash_add(SUS_KSTAT_HLIST, &virtual_entry->node, virtual_ino);
+	}
+	spin_unlock(&susfs_spin_lock_sus_kstat);
+
+	// Logging after lock release
+	SUSFS_LOGI("kstat_redirect: RPATH_OK ino=%lu dev=%lu '%s'\n",
+	           new_entry->target_ino, new_entry->info.spoofed_dev, info.real_pathname);
+	if (virtual_entry) {
+		SUSFS_LOGI("kstat_redirect: DUAL_INODE vino=%lu rino=%lu '%s'\n",
+		           virtual_ino, new_entry->target_ino, info.virtual_pathname);
 	} else if (virtual_path_resolved && virtual_ino == new_entry->target_ino) {
-		pr_info("susfs_kstat_redirect: SAME_INODE ino=%lu '%s'\n",
-		        virtual_ino, info.virtual_pathname);
+		SUSFS_LOGI("kstat_redirect: SAME_INODE ino=%lu '%s'\n",
+		           virtual_ino, info.virtual_pathname);
 	}
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
@@ -649,7 +653,7 @@ out_copy_to_user:
 	if (copy_to_user(&((struct st_susfs_sus_kstat_redirect __user*)*user_info)->err, &info.err, sizeof(info.err))) {
 		info.err = -EFAULT;
 	}
-	pr_info("susfs_kstat_redirect: EXIT ret=%d vpath='%s'\n", info.err, info.virtual_pathname);
+	SUSFS_LOGI("kstat_redirect: EXIT ret=%d vpath='%s'\n", info.err, info.virtual_pathname);
 }
 
 void susfs_update_sus_kstat(void __user **user_info) {
@@ -689,11 +693,12 @@ void susfs_update_sus_kstat(void __user **user_info) {
 								new_entry->info.spoofed_blocks, info.spoofed_blocks, info.target_pathname);
 				new_entry->info.spoofed_blocks = info.spoofed_blocks;
 			}
-			hash_del(&tmp_entry->node);
-			kfree(tmp_entry);
+			// Atomic delete-and-add under single lock
 			spin_lock(&susfs_spin_lock_sus_kstat);
+			hash_del(&tmp_entry->node);
 			hash_add(SUS_KSTAT_HLIST, &new_entry->node, info.target_ino);
 			spin_unlock(&susfs_spin_lock_sus_kstat);
+			kfree(tmp_entry);
 			info.err = 0;
 			goto out_copy_to_user;
 		}
@@ -707,7 +712,9 @@ out_copy_to_user:
 
 void susfs_sus_ino_for_generic_fillattr(unsigned long ino, struct kstat *stat) {
 	struct st_susfs_sus_kstat_hlist *entry;
+	unsigned long flags;
 
+	spin_lock_irqsave(&susfs_spin_lock_sus_kstat, flags);
 	hash_for_each_possible(SUS_KSTAT_HLIST, entry, node, ino) {
 		if (entry->target_ino == ino) {
 			stat->dev = entry->info.spoofed_dev;
@@ -722,21 +729,27 @@ void susfs_sus_ino_for_generic_fillattr(unsigned long ino, struct kstat *stat) {
 			stat->ctime.tv_nsec = entry->info.spoofed_ctime_tv_nsec;
 			stat->blocks = entry->info.spoofed_blocks;
 			stat->blksize = entry->info.spoofed_blksize;
+			spin_unlock_irqrestore(&susfs_spin_lock_sus_kstat, flags);
 			return;
 		}
 	}
+	spin_unlock_irqrestore(&susfs_spin_lock_sus_kstat, flags);
 }
 
 void susfs_sus_ino_for_show_map_vma(unsigned long ino, dev_t *out_dev, unsigned long *out_ino) {
 	struct st_susfs_sus_kstat_hlist *entry;
+	unsigned long flags;
 
+	spin_lock_irqsave(&susfs_spin_lock_sus_kstat, flags);
 	hash_for_each_possible(SUS_KSTAT_HLIST, entry, node, ino) {
 		if (entry->target_ino == ino) {
 			*out_dev = entry->info.spoofed_dev;
 			*out_ino = entry->info.spoofed_ino;
+			spin_unlock_irqrestore(&susfs_spin_lock_sus_kstat, flags);
 			return;
 		}
 	}
+	spin_unlock_irqrestore(&susfs_spin_lock_sus_kstat, flags);
 }
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 
