@@ -8,8 +8,9 @@ fi
 
 unzip ${ZIPFILE} -d ${TMPDIR}/susfs
 
+# Use binary with add_sus_kstat_redirect support (required for race-free kstat spoofing)
 if [ ${ARCH} = "arm64" ]; then
-	cp ${TMPDIR}/susfs/tools/ksu_susfs_arm64 ${DEST_BIN_DIR}/ksu_susfs
+	cp ${TMPDIR}/susfs/tools/20000/gki/ksu_susfs_arm64 ${DEST_BIN_DIR}/ksu_susfs
 else
 	echo "Only arm64 is supported!"
 	exit 1
