@@ -24,8 +24,12 @@ bool susfs_is_log_enabled __read_mostly = true;
 #define SUSFS_LOGI(fmt, ...) if (susfs_is_log_enabled) pr_info("susfs:[%u][%d][%s] " fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)
 #define SUSFS_LOGE(fmt, ...) if (susfs_is_log_enabled) pr_err("susfs:[%u][%d][%s]" fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)
 #else
-#define SUSFS_LOGI(fmt, ...) 
-#define SUSFS_LOGE(fmt, ...) 
+#define SUSFS_LOGI(fmt, ...)
+#define SUSFS_LOGE(fmt, ...)
+#endif
+
+#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
+static bool susfs_unicode_filter_ready = false;
 #endif
 
 bool susfs_starts_with(const char *str, const char *prefix) {
@@ -369,9 +373,7 @@ bool susfs_is_inode_sus_path(struct inode *inode) {
 /* sus_mount */
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 static DEFINE_SPINLOCK(susfs_spin_lock_sus_mount);
-// - Default to false now so zygisk can pick up the sus mounts without the need to turn it off manually in post-fs-data stage
-//   otherwise user needs to turn it on in post-fs-data stage and turn it off in boot-completed stage
-bool susfs_hide_sus_mnts_for_non_su_procs = false;
+bool susfs_hide_sus_mnts_for_non_su_procs = true; // hide sus mounts for all processes by default
 
 void susfs_set_hide_sus_mnts_for_non_su_procs(void __user **user_info) {
 	struct st_susfs_hide_sus_mnts_for_non_su_procs info = {0};
@@ -533,6 +535,8 @@ void susfs_add_sus_kstat_redirect(void __user **user_info) {
 #endif /* defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64) */
 
 	// Resolve VIRTUAL path (original system file) - non-fatal if fails
+	SUSFS_LOGI("kstat_redirect: ENTRY vpath='%s' rpath='%s'\n",
+	           info.virtual_pathname, info.real_pathname);
 	if (!kern_path(info.virtual_pathname, 0, &p_virtual)) {
 		inode_virtual = d_inode(p_virtual.dentry);
 		if (inode_virtual) {
@@ -543,12 +547,12 @@ void susfs_add_sus_kstat_redirect(void __user **user_info) {
 				spin_unlock(&inode_virtual->i_lock);
 			}
 			virtual_path_resolved = true;
-			SUSFS_LOGI("virtual path '%s' resolved, ino: %lu\n",
-			           info.virtual_pathname, virtual_ino);
+			SUSFS_LOGI("kstat_redirect: VPATH_OK ino=%lu flagged='%s'\n",
+			           virtual_ino, info.virtual_pathname);
 		}
 		path_put(&p_virtual);
 	} else {
-		SUSFS_LOGI("virtual path '%s' not found (new file from module)\n",
+		SUSFS_LOGI("kstat_redirect: VPATH_MISSING '%s' (new file)\n",
 		           info.virtual_pathname);
 	}
 
@@ -594,28 +598,37 @@ void susfs_add_sus_kstat_redirect(void __user **user_info) {
 
 	path_put(&p_real);
 
-	// Add hash entry for REAL (replacement) inode
-	spin_lock(&susfs_spin_lock_sus_kstat);
-	hash_add(SUS_KSTAT_HLIST, &new_entry->node, new_entry->target_ino);
-	spin_unlock(&susfs_spin_lock_sus_kstat);
-
-	// Add hash entry for VIRTUAL (original) inode if different from real
+	// Pre-allocate virtual entry if needed (before acquiring lock)
 	if (virtual_path_resolved && virtual_ino != 0 && virtual_ino != new_entry->target_ino) {
 		virtual_entry = kzalloc(sizeof(struct st_susfs_sus_kstat_hlist), GFP_KERNEL);
-		if (virtual_entry) {
-			memcpy(&virtual_entry->info, &new_entry->info, sizeof(new_entry->info));
-			virtual_entry->target_ino = virtual_ino;
-			virtual_entry->info.target_ino = virtual_ino;
-
-			spin_lock(&susfs_spin_lock_sus_kstat);
-			hash_add(SUS_KSTAT_HLIST, &virtual_entry->node, virtual_ino);
-			spin_unlock(&susfs_spin_lock_sus_kstat);
-
-			SUSFS_LOGI("DUAL hash entries: virtual_ino=%lu, real_ino=%lu for '%s'\n",
-			           virtual_ino, new_entry->target_ino, info.virtual_pathname);
-		} else {
-			SUSFS_LOGE("failed to allocate virtual_entry for dual-inode\n");
+		if (!virtual_entry) {
+			SUSFS_LOGE("kstat_redirect: ALLOC_FAIL virtual_entry, aborting\n");
+			kfree(new_entry);
+			info.err = -ENOMEM;
+			goto out_copy_to_user;
 		}
+		memcpy(&virtual_entry->info, &new_entry->info, sizeof(new_entry->info));
+		virtual_entry->target_ino = virtual_ino;
+		virtual_entry->info.target_ino = virtual_ino;
+	}
+
+	// Add both entries atomically under single lock
+	spin_lock(&susfs_spin_lock_sus_kstat);
+	hash_add(SUS_KSTAT_HLIST, &new_entry->node, new_entry->target_ino);
+	if (virtual_entry) {
+		hash_add(SUS_KSTAT_HLIST, &virtual_entry->node, virtual_ino);
+	}
+	spin_unlock(&susfs_spin_lock_sus_kstat);
+
+	// Logging after lock release
+	SUSFS_LOGI("kstat_redirect: RPATH_OK ino=%lu dev=%lu '%s'\n",
+	           new_entry->target_ino, new_entry->info.spoofed_dev, info.real_pathname);
+	if (virtual_entry) {
+		SUSFS_LOGI("kstat_redirect: DUAL_INODE vino=%lu rino=%lu '%s'\n",
+		           virtual_ino, new_entry->target_ino, info.virtual_pathname);
+	} else if (virtual_path_resolved && virtual_ino == new_entry->target_ino) {
+		SUSFS_LOGI("kstat_redirect: SAME_INODE ino=%lu '%s'\n",
+		           virtual_ino, info.virtual_pathname);
 	}
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
@@ -640,7 +653,7 @@ out_copy_to_user:
 	if (copy_to_user(&((struct st_susfs_sus_kstat_redirect __user*)*user_info)->err, &info.err, sizeof(info.err))) {
 		info.err = -EFAULT;
 	}
-	SUSFS_LOGI("CMD_SUSFS_ADD_SUS_KSTAT_REDIRECT -> ret: %d\n", info.err);
+	SUSFS_LOGI("kstat_redirect: EXIT ret=%d vpath='%s'\n", info.err, info.virtual_pathname);
 }
 
 void susfs_update_sus_kstat(void __user **user_info) {
@@ -680,11 +693,12 @@ void susfs_update_sus_kstat(void __user **user_info) {
 								new_entry->info.spoofed_blocks, info.spoofed_blocks, info.target_pathname);
 				new_entry->info.spoofed_blocks = info.spoofed_blocks;
 			}
-			hash_del(&tmp_entry->node);
-			kfree(tmp_entry);
+			// Atomic delete-and-add under single lock
 			spin_lock(&susfs_spin_lock_sus_kstat);
+			hash_del(&tmp_entry->node);
 			hash_add(SUS_KSTAT_HLIST, &new_entry->node, info.target_ino);
 			spin_unlock(&susfs_spin_lock_sus_kstat);
+			kfree(tmp_entry);
 			info.err = 0;
 			goto out_copy_to_user;
 		}
@@ -698,7 +712,9 @@ out_copy_to_user:
 
 void susfs_sus_ino_for_generic_fillattr(unsigned long ino, struct kstat *stat) {
 	struct st_susfs_sus_kstat_hlist *entry;
+	unsigned long flags;
 
+	spin_lock_irqsave(&susfs_spin_lock_sus_kstat, flags);
 	hash_for_each_possible(SUS_KSTAT_HLIST, entry, node, ino) {
 		if (entry->target_ino == ino) {
 			stat->dev = entry->info.spoofed_dev;
@@ -713,21 +729,27 @@ void susfs_sus_ino_for_generic_fillattr(unsigned long ino, struct kstat *stat) {
 			stat->ctime.tv_nsec = entry->info.spoofed_ctime_tv_nsec;
 			stat->blocks = entry->info.spoofed_blocks;
 			stat->blksize = entry->info.spoofed_blksize;
+			spin_unlock_irqrestore(&susfs_spin_lock_sus_kstat, flags);
 			return;
 		}
 	}
+	spin_unlock_irqrestore(&susfs_spin_lock_sus_kstat, flags);
 }
 
 void susfs_sus_ino_for_show_map_vma(unsigned long ino, dev_t *out_dev, unsigned long *out_ino) {
 	struct st_susfs_sus_kstat_hlist *entry;
+	unsigned long flags;
 
+	spin_lock_irqsave(&susfs_spin_lock_sus_kstat, flags);
 	hash_for_each_possible(SUS_KSTAT_HLIST, entry, node, ino) {
 		if (entry->target_ino == ino) {
 			*out_dev = entry->info.spoofed_dev;
 			*out_ino = entry->info.spoofed_ino;
+			spin_unlock_irqrestore(&susfs_spin_lock_sus_kstat, flags);
 			return;
 		}
 	}
+	spin_unlock_irqrestore(&susfs_spin_lock_sus_kstat, flags);
 }
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 
@@ -984,6 +1006,140 @@ out_copy_to_user:
 }
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
 
+/* Unicode security filter - blocks Unicode bypass attacks on Android/data and Android/obb */
+#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
+
+// Complete list of Unicode bypass characters (invisible/zero-width characters)
+// Matches KPM-Unicode-Security v0.0.31 for comprehensive coverage
+static const unsigned char UNICODE_BYPASS_CHARS[][4] = {
+	{ 0xC2, 0xAD, 0x00, 0x00 }, // U+00AD SOFT HYPHEN
+	{ 0xCD, 0x8F, 0x00, 0x00 }, // U+034F COMBINING GRAPHEME JOINER
+	{ 0xD8, 0x9C, 0x00, 0x00 }, // U+061C ARABIC LETTER MARK
+	{ 0xE1, 0x85, 0x9F, 0x00 }, // U+115F HANGUL CHOSEONG FILLER
+	{ 0xE1, 0x85, 0xA0, 0x00 }, // U+1160 HANGUL JUNGSEONG FILLER
+	{ 0xE1, 0x9E, 0xB4, 0x00 }, // U+17B4 KHMER VOWEL INHERENT AQ
+	{ 0xE1, 0x9E, 0xB5, 0x00 }, // U+17B5 KHMER VOWEL INHERENT AA
+	{ 0xE1, 0xA0, 0x8B, 0x00 }, // U+180B MONGOLIAN FREE VARIATION SELECTOR ONE
+	{ 0xE1, 0xA0, 0x8C, 0x00 }, // U+180C MONGOLIAN FREE VARIATION SELECTOR TWO
+	{ 0xE1, 0xA0, 0x8D, 0x00 }, // U+180D MONGOLIAN FREE VARIATION SELECTOR THREE
+	{ 0xE1, 0xA0, 0x8E, 0x00 }, // U+180E MONGOLIAN VOWEL SEPARATOR
+	{ 0xE2, 0x80, 0x8B, 0x00 }, // U+200B ZERO WIDTH SPACE
+	{ 0xE2, 0x80, 0x8C, 0x00 }, // U+200C ZERO WIDTH NON-JOINER
+	{ 0xE2, 0x80, 0x8D, 0x00 }, // U+200D ZERO WIDTH JOINER
+	{ 0xE2, 0x80, 0x8E, 0x00 }, // U+200E LEFT-TO-RIGHT MARK
+	{ 0xE2, 0x80, 0x8F, 0x00 }, // U+200F RIGHT-TO-LEFT MARK
+	{ 0xE2, 0x80, 0xAA, 0x00 }, // U+202A LEFT-TO-RIGHT EMBEDDING
+	{ 0xE2, 0x80, 0xAB, 0x00 }, // U+202B RIGHT-TO-LEFT EMBEDDING
+	{ 0xE2, 0x80, 0xAC, 0x00 }, // U+202C POP DIRECTIONAL FORMATTING
+	{ 0xE2, 0x80, 0xAD, 0x00 }, // U+202D LEFT-TO-RIGHT OVERRIDE
+	{ 0xE2, 0x80, 0xAE, 0x00 }, // U+202E RIGHT-TO-LEFT OVERRIDE
+	{ 0xE2, 0x81, 0xA0, 0x00 }, // U+2060 WORD JOINER
+	{ 0xE2, 0x81, 0xA1, 0x00 }, // U+2061 FUNCTION APPLICATION
+	{ 0xE2, 0x81, 0xA2, 0x00 }, // U+2062 INVISIBLE TIMES
+	{ 0xE2, 0x81, 0xA3, 0x00 }, // U+2063 INVISIBLE SEPARATOR
+	{ 0xE2, 0x81, 0xA4, 0x00 }, // U+2064 INVISIBLE PLUS
+	{ 0xE2, 0x81, 0xA5, 0x00 }, // U+2065 (reserved)
+	{ 0xE2, 0x81, 0xA6, 0x00 }, // U+2066 LEFT-TO-RIGHT ISOLATE
+	{ 0xE2, 0x81, 0xA7, 0x00 }, // U+2067 RIGHT-TO-LEFT ISOLATE
+	{ 0xE2, 0x81, 0xA8, 0x00 }, // U+2068 FIRST STRONG ISOLATE
+	{ 0xE2, 0x81, 0xA9, 0x00 }, // U+2069 POP DIRECTIONAL ISOLATE
+	{ 0xE2, 0x81, 0xAA, 0x00 }, // U+206A INHIBIT SYMMETRIC SWAPPING
+	{ 0xE2, 0x81, 0xAB, 0x00 }, // U+206B ACTIVATE SYMMETRIC SWAPPING
+	{ 0xE2, 0x81, 0xAC, 0x00 }, // U+206C INHIBIT ARABIC FORM SHAPING
+	{ 0xE2, 0x81, 0xAD, 0x00 }, // U+206D ACTIVATE ARABIC FORM SHAPING
+	{ 0xE2, 0x81, 0xAE, 0x00 }, // U+206E NATIONAL DIGIT SHAPES
+	{ 0xE2, 0x81, 0xAF, 0x00 }, // U+206F NOMINAL DIGIT SHAPES
+	{ 0xE3, 0x85, 0xA4, 0x00 }, // U+3164 HANGUL FILLER
+	{ 0xEF, 0xB8, 0x80, 0x00 }, // U+FE00 VARIATION SELECTOR-1
+	{ 0xEF, 0xB8, 0x81, 0x00 }, // U+FE01 VARIATION SELECTOR-2
+	{ 0xEF, 0xB8, 0x82, 0x00 }, // U+FE02 VARIATION SELECTOR-3
+	{ 0xEF, 0xB8, 0x83, 0x00 }, // U+FE03 VARIATION SELECTOR-4
+	{ 0xEF, 0xB8, 0x84, 0x00 }, // U+FE04 VARIATION SELECTOR-5
+	{ 0xEF, 0xB8, 0x85, 0x00 }, // U+FE05 VARIATION SELECTOR-6
+	{ 0xEF, 0xB8, 0x86, 0x00 }, // U+FE06 VARIATION SELECTOR-7
+	{ 0xEF, 0xB8, 0x87, 0x00 }, // U+FE07 VARIATION SELECTOR-8
+	{ 0xEF, 0xB8, 0x88, 0x00 }, // U+FE08 VARIATION SELECTOR-9
+	{ 0xEF, 0xB8, 0x89, 0x00 }, // U+FE09 VARIATION SELECTOR-10
+	{ 0xEF, 0xB8, 0x8A, 0x00 }, // U+FE0A VARIATION SELECTOR-11
+	{ 0xEF, 0xB8, 0x8B, 0x00 }, // U+FE0B VARIATION SELECTOR-12
+	{ 0xEF, 0xB8, 0x8C, 0x00 }, // U+FE0C VARIATION SELECTOR-13
+	{ 0xEF, 0xB8, 0x8D, 0x00 }, // U+FE0D VARIATION SELECTOR-14
+	{ 0xEF, 0xB8, 0x8E, 0x00 }, // U+FE0E VARIATION SELECTOR-15
+	{ 0xEF, 0xB8, 0x8F, 0x00 }, // U+FE0F VARIATION SELECTOR-16
+	{ 0xEF, 0xBB, 0xBF, 0x00 }, // U+FEFF BYTE ORDER MARK
+	{ 0xEF, 0xBE, 0xA0, 0x00 }, // U+FFA0 HALFWIDTH HANGUL FILLER
+	{ 0xEF, 0xBF, 0xB0, 0x00 }, // U+FFF0 (reserved)
+	{ 0xEF, 0xBF, 0xB1, 0x00 }, // U+FFF1 (reserved)
+	{ 0xEF, 0xBF, 0xB2, 0x00 }, // U+FFF2 (reserved)
+	{ 0xEF, 0xBF, 0xB3, 0x00 }, // U+FFF3 (reserved)
+	{ 0xEF, 0xBF, 0xB4, 0x00 }, // U+FFF4 (reserved)
+	{ 0xEF, 0xBF, 0xB5, 0x00 }, // U+FFF5 (reserved)
+	{ 0xEF, 0xBF, 0xB6, 0x00 }, // U+FFF6 (reserved)
+	{ 0xEF, 0xBF, 0xB7, 0x00 }, // U+FFF7 (reserved)
+	{ 0xEF, 0xBF, 0xB8, 0x00 }, // U+FFF8 (reserved)
+	{ 0x00, 0x00, 0x00, 0x00 }  // End marker
+};
+
+// Check if path contains Unicode bypass characters targeting Android/data or Android/obb
+bool susfs_check_unicode_bypass(const char __user *pathname) {
+	char buf[256];
+	char clean_buf[256];
+	long len;
+	size_t clean_idx = 0;
+	int bypass_found = 0;
+	unsigned int uid_val;
+	size_t i, j;
+
+	// Boot safety: don't filter until SUSFS is fully initialized
+	if (!susfs_unicode_filter_ready)
+		return false;
+
+	if (!pathname)
+		return false;
+
+	len = strncpy_from_user(buf, pathname, sizeof(buf) - 1);
+	if (len <= 0)
+		return false;
+	buf[len] = '\0';
+
+	// Whitelist root (0) and system (1000)
+	uid_val = current_uid().val;
+	if (uid_val == 0 || uid_val == 1000)
+		return false;
+
+	// Build clean path (without bypass characters) and detect bypass attempts
+	for (i = 0; i < len; i++) {
+		bool is_bypass = false;
+		for (j = 0; UNICODE_BYPASS_CHARS[j][0] != 0; j++) {
+			const unsigned char *p = UNICODE_BYPASS_CHARS[j];
+			int p_len = (p[2] != 0) ? 3 : 2;
+			if (i + p_len <= len && memcmp(&buf[i], p, p_len) == 0) {
+				bypass_found++;
+				i += p_len - 1; // Skip bypass chars
+				is_bypass = true;
+				break;
+			}
+		}
+		if (!is_bypass && clean_idx < sizeof(clean_buf) - 1) {
+			clean_buf[clean_idx++] = buf[i];
+		}
+	}
+	clean_buf[clean_idx] = '\0';
+
+	if (bypass_found == 0)
+		return false;
+
+	// Check if cleaned path reveals Android/data or Android/obb access attempt
+	if ((!strstr(buf, "Android/data/") && strstr(clean_buf, "Android/data")) ||
+	    (!strstr(buf, "Android/obb/") && strstr(clean_buf, "Android/obb"))) {
+		SUSFS_LOGI("BLOCKED Unicode bypass: uid=%u path=%s\n", uid_val, buf);
+		return true; // Block this access
+	}
+
+	return false;
+}
+#endif // #ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
+
 /* susfs avc log spoofing */
 static DEFINE_SPINLOCK(susfs_spin_lock_set_avc_log_spoofing);
 extern bool susfs_is_avc_log_spoofing_enabled;
@@ -1083,6 +1239,11 @@ void susfs_get_enabled_features(void __user **user_info) {
 	if (info->err) goto out_copy_to_user;
 	buf_ptr = info->enabled_features + copied_size;
 #endif
+#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
+	info->err = copy_config_to_buf("CONFIG_KSU_SUSFS_UNICODE_FILTER\n", buf_ptr, &copied_size, SUSFS_ENABLED_FEATURES_SIZE);
+	if (info->err) goto out_copy_to_user;
+	buf_ptr = info->enabled_features + copied_size;
+#endif
 
 	info->err = 0;
 out_copy_to_user:
@@ -1135,6 +1296,9 @@ out_copy_to_user:
 void susfs_init(void) {
 #ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
 	susfs_my_uname_init();
+#endif
+#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
+	susfs_unicode_filter_ready = true;
 #endif
 	SUSFS_LOGI("susfs is initialized! version: " SUSFS_VERSION " \n");
 }
