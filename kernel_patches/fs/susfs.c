@@ -497,9 +497,14 @@ out_copy_to_user:
 
 void susfs_add_sus_kstat_redirect(void __user **user_info) {
 	struct st_susfs_sus_kstat_redirect info = {0};
-	struct st_susfs_sus_kstat_hlist *new_entry;
-	struct path p;
-	struct inode *inode = NULL;
+	struct st_susfs_sus_kstat_hlist *new_entry = NULL;
+	struct st_susfs_sus_kstat_hlist *virtual_entry = NULL;
+	struct path p_real;
+	struct path p_virtual;
+	struct inode *inode_real = NULL;
+	struct inode *inode_virtual = NULL;
+	unsigned long virtual_ino = 0;
+	bool virtual_path_resolved = false;
 
 	if (copy_from_user(&info, (struct st_susfs_sus_kstat_redirect __user*)*user_info, sizeof(info))) {
 		info.err = -EFAULT;
@@ -527,31 +532,52 @@ void susfs_add_sus_kstat_redirect(void __user **user_info) {
 	info.spoofed_dev = old_decode_dev(info.spoofed_dev);
 #endif /* defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64) */
 
-	info.err = kern_path(info.real_pathname, 0, &p);
+	// Resolve VIRTUAL path (original system file) - non-fatal if fails
+	if (!kern_path(info.virtual_pathname, 0, &p_virtual)) {
+		inode_virtual = d_inode(p_virtual.dentry);
+		if (inode_virtual) {
+			virtual_ino = inode_virtual->i_ino;
+			if (!(inode_virtual->i_mapping->flags & BIT_SUS_KSTAT)) {
+				spin_lock(&inode_virtual->i_lock);
+				set_bit(AS_FLAGS_SUS_KSTAT, &inode_virtual->i_mapping->flags);
+				spin_unlock(&inode_virtual->i_lock);
+			}
+			virtual_path_resolved = true;
+			SUSFS_LOGI("virtual path '%s' resolved, ino: %lu\n",
+			           info.virtual_pathname, virtual_ino);
+		}
+		path_put(&p_virtual);
+	} else {
+		SUSFS_LOGI("virtual path '%s' not found (new file from module)\n",
+		           info.virtual_pathname);
+	}
+
+	// Resolve REAL path (replacement file) - must succeed
+	info.err = kern_path(info.real_pathname, 0, &p_real);
 	if (info.err) {
 		SUSFS_LOGE("Failed opening real file '%s'\n", info.real_pathname);
 		kfree(new_entry);
 		goto out_copy_to_user;
 	}
 
-	inode = d_inode(p.dentry);
-	if (!inode) {
-		path_put(&p);
+	inode_real = d_inode(p_real.dentry);
+	if (!inode_real) {
+		path_put(&p_real);
 		kfree(new_entry);
 		SUSFS_LOGE("inode is NULL for real file '%s'\n", info.real_pathname);
 		info.err = -EINVAL;
 		goto out_copy_to_user;
 	}
 
-	if (!(inode->i_mapping->flags & BIT_SUS_KSTAT)) {
-		spin_lock(&inode->i_lock);
-		set_bit(AS_FLAGS_SUS_KSTAT, &inode->i_mapping->flags);
-		spin_unlock(&inode->i_lock);
+	if (!(inode_real->i_mapping->flags & BIT_SUS_KSTAT)) {
+		spin_lock(&inode_real->i_lock);
+		set_bit(AS_FLAGS_SUS_KSTAT, &inode_real->i_mapping->flags);
+		spin_unlock(&inode_real->i_lock);
 	}
 
-	new_entry->target_ino = inode->i_ino;
+	new_entry->target_ino = inode_real->i_ino;
 	new_entry->info.is_statically = 0;
-	new_entry->info.target_ino = inode->i_ino;
+	new_entry->info.target_ino = inode_real->i_ino;
 	strncpy(new_entry->info.target_pathname, info.virtual_pathname, SUSFS_MAX_LEN_PATHNAME - 1);
 	new_entry->info.spoofed_ino = info.spoofed_ino;
 	new_entry->info.spoofed_dev = info.spoofed_dev;
@@ -566,11 +592,31 @@ void susfs_add_sus_kstat_redirect(void __user **user_info) {
 	new_entry->info.spoofed_blksize = info.spoofed_blksize;
 	new_entry->info.spoofed_blocks = info.spoofed_blocks;
 
-	path_put(&p);
+	path_put(&p_real);
 
+	// Add hash entry for REAL (replacement) inode
 	spin_lock(&susfs_spin_lock_sus_kstat);
 	hash_add(SUS_KSTAT_HLIST, &new_entry->node, new_entry->target_ino);
 	spin_unlock(&susfs_spin_lock_sus_kstat);
+
+	// Add hash entry for VIRTUAL (original) inode if different from real
+	if (virtual_path_resolved && virtual_ino != 0 && virtual_ino != new_entry->target_ino) {
+		virtual_entry = kzalloc(sizeof(struct st_susfs_sus_kstat_hlist), GFP_KERNEL);
+		if (virtual_entry) {
+			memcpy(&virtual_entry->info, &new_entry->info, sizeof(new_entry->info));
+			virtual_entry->target_ino = virtual_ino;
+			virtual_entry->info.target_ino = virtual_ino;
+
+			spin_lock(&susfs_spin_lock_sus_kstat);
+			hash_add(SUS_KSTAT_HLIST, &virtual_entry->node, virtual_ino);
+			spin_unlock(&susfs_spin_lock_sus_kstat);
+
+			SUSFS_LOGI("DUAL hash entries: virtual_ino=%lu, real_ino=%lu for '%s'\n",
+			           virtual_ino, new_entry->target_ino, info.virtual_pathname);
+		} else {
+			SUSFS_LOGE("failed to allocate virtual_entry for dual-inode\n");
+		}
+	}
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
 	SUSFS_LOGI("redirect: virtual: '%s', real: '%s', target_ino: '%lu', spoofed_ino: '%lu', spoofed_dev: '%lu', spoofed_nlink: '%u', spoofed_size: '%llu', spoofed_atime_tv_sec: '%ld', spoofed_mtime_tv_sec: '%ld', spoofed_ctime_tv_sec: '%ld', spoofed_atime_tv_nsec: '%ld', spoofed_mtime_tv_nsec: '%ld', spoofed_ctime_tv_nsec: '%ld', spoofed_blksize: '%lu', spoofed_blocks: '%llu', added to SUS_KSTAT_HLIST\n",
