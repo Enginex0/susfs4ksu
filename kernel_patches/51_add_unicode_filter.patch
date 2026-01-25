@@ -1,0 +1,93 @@
+From: Claude Code <noreply@anthropic.com>
+Subject: [PATCH] susfs: Add Unicode filter hooks to fs/open.c and fs/stat.c
+
+Add syscall hooks for the Unicode filter that already exists in susfs.c.
+The filter blocks scoped storage bypass attacks using unicode characters.
+
+Hooks added:
+- fs/open.c: do_faccessat, do_sys_openat2
+- fs/stat.c: vfs_statx (vfs_fstatat is a wrapper, so hook the real function)
+
+Note: The susfs_check_unicode_bypass() function is already implemented in
+susfs.c with proper UID whitelisting and pattern detection.
+
+Signed-off-by: Claude Code <noreply@anthropic.com>
+---
+ include/linux/susfs.h |    4 ++++
+ fs/open.c             |   17 +++++++++++++++++
+ fs/stat.c             |   12 ++++++++++++
+ 3 files changed, 33 insertions(+)
+
+--- a/include/linux/susfs.h
++++ b/include/linux/susfs.h
+@@ -236,4 +236,8 @@ void susfs_show_version(void __user **us
+ /* susfs_init */
+ void susfs_init(void);
+
++#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
++bool susfs_check_unicode_bypass(const char __user *pathname);
++#endif
++
+ #endif
+--- a/fs/open.c
++++ b/fs/open.c
+@@ -35,6 +35,10 @@
+ #include "internal.h"
+ #include <trace/hooks/syscall_check.h>
+
++#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
++#include <linux/susfs.h>
++#endif
++
+ int do_truncate(struct dentry *dentry, loff_t length, unsigned int time_attrs,
+ 	struct file *filp)
+ {
+@@ -398,6 +402,11 @@ static long do_faccessat(int dfd, const
+ 	unsigned int lookup_flags = LOOKUP_FOLLOW;
+ 	const struct cred *old_cred = NULL;
+
++#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
++	if (susfs_check_unicode_bypass(filename))
++		return -ENOENT;
++#endif
++
+ 	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
+ 		return -EINVAL;
+
+@@ -1201,6 +1210,11 @@ static long do_sys_openat2(int dfd, cons
+ 	int fd = build_open_flags(how, &op);
+ 	struct filename *tmp;
+
++#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
++	if (susfs_check_unicode_bypass(filename))
++		return -ENOENT;
++#endif
++
+ 	if (fd)
+ 		return fd;
+
+--- a/fs/stat.c
++++ b/fs/stat.c
+@@ -22,6 +22,10 @@
+
+ #include "internal.h"
+ #include "mount.h"
++
++#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
++#include <linux/susfs.h>
++#endif
+
+ /**
+  * generic_fillattr - Fill in the basic attributes from the inode struct
+@@ -174,6 +178,11 @@ static int vfs_statx(int dfd, const char
+ 	unsigned lookup_flags = 0;
+ 	int error;
+
++#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
++	if (filename && susfs_check_unicode_bypass(filename))
++		return -ENOENT;
++#endif
++
+ 	if (flags & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT | AT_EMPTY_PATH |
+ 		      AT_STATX_SYNC_TYPE))
+ 		return -EINVAL;
