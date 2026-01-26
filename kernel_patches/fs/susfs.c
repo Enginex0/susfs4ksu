@@ -65,17 +65,13 @@ bool susfs_check_unicode_bypass(const char __user *filename)
 		if (c <= 127)
 			continue;
 
-		// Feature 1+2: Bidi overrides + Zero-width chars only
+		// Feature 1 ONLY: Bidi overrides
 		if (i + 2 < len) {
 			if (memcmp(&buf[i], PAT_RTL_OVERRIDE, 3) == 0 ||
 			    memcmp(&buf[i], PAT_LTR_OVERRIDE, 3) == 0 ||
 			    memcmp(&buf[i], PAT_RTL_EMBED, 3) == 0 ||
-			    memcmp(&buf[i], PAT_LTR_EMBED, 3) == 0 ||
-			    memcmp(&buf[i], PAT_ZWSP, 3) == 0 ||
-			    memcmp(&buf[i], PAT_ZWNJ, 3) == 0 ||
-			    memcmp(&buf[i], PAT_ZWJ, 3) == 0 ||
-			    memcmp(&buf[i], PAT_BOM, 3) == 0) {
-				SUSFS_LOGI("unicode: blocked pattern uid=%u\n", uid);
+			    memcmp(&buf[i], PAT_LTR_EMBED, 3) == 0) {
+				SUSFS_LOGI("unicode: blocked bidi uid=%u\n", uid);
 				return true;
 			}
 		}
