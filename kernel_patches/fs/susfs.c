@@ -65,6 +65,7 @@ bool susfs_check_unicode_bypass(const char __user *filename)
 		if (c <= 127)
 			continue;
 
+		// Feature 1+2: Bidi overrides + Zero-width chars only
 		if (i + 2 < len) {
 			if (memcmp(&buf[i], PAT_RTL_OVERRIDE, 3) == 0 ||
 			    memcmp(&buf[i], PAT_LTR_OVERRIDE, 3) == 0 ||
@@ -78,19 +79,6 @@ bool susfs_check_unicode_bypass(const char __user *filename)
 				return true;
 			}
 		}
-
-		if (c == 0xD0 || c == 0xD1) {
-			SUSFS_LOGI("unicode: blocked cyrillic uid=%u\n", uid);
-			return true;
-		}
-
-		if (c == 0xCC || (c == 0xCD && i + 1 < len && (unsigned char)buf[i+1] <= 0xAF)) {
-			SUSFS_LOGI("unicode: blocked diacritical uid=%u\n", uid);
-			return true;
-		}
-
-		SUSFS_LOGI("unicode: blocked byte 0x%02x uid=%u\n", c, uid);
-		return true;
 	}
 	return false;
 }
