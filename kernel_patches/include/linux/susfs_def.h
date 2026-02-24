@@ -18,11 +18,13 @@
 #define CMD_SUSFS_ADD_SUS_KSTAT 0x55570
 #define CMD_SUSFS_UPDATE_SUS_KSTAT 0x55571
 #define CMD_SUSFS_ADD_SUS_KSTAT_STATICALLY 0x55572
+#define CMD_SUSFS_ADD_SUS_KSTAT_REDIRECT 0x55573
 #define CMD_SUSFS_ADD_TRY_UMOUNT 0x55580 /* deprecated */
 #define CMD_SUSFS_SET_UNAME 0x55590
 #define CMD_SUSFS_ENABLE_LOG 0x555a0
 #define CMD_SUSFS_SET_CMDLINE_OR_BOOTCONFIG 0x555b0
 #define CMD_SUSFS_ADD_OPEN_REDIRECT 0x555c0
+#define CMD_SUSFS_ADD_OPEN_REDIRECT_ALL 0x555c1
 #define CMD_SUSFS_SHOW_VERSION 0x555e1
 #define CMD_SUSFS_SHOW_ENABLED_FEATURES 0x555e2
 #define CMD_SUSFS_SHOW_VARIANT 0x555e3
@@ -61,6 +63,8 @@
 #define AS_FLAGS_ANDROID_DATA_ROOT_DIR 37
 #define AS_FLAGS_SDCARD_ROOT_DIR 38
 #define AS_FLAGS_SUS_MAP 39
+#define AS_FLAGS_OPEN_REDIRECT_ALL 40
+#define BIT_OPEN_REDIRECT_ALL BIT(40)
 #define BIT_SUS_PATH BIT(33)
 #define BIT_SUS_MOUNT BIT(34)
 #define BIT_SUS_KSTAT BIT(35)
@@ -83,4 +87,13 @@ static inline bool susfs_is_current_proc_umounted(void) {
 static inline void susfs_set_current_proc_umounted(void) {
 	set_ti_thread_flag(&current->thread_info, TIF_PROC_UMOUNTED);
 }
+// ZeroMount integration: extern when enabled, no-op helper when disabled
+#ifdef CONFIG_ZEROMOUNT
+extern bool zeromount_is_uid_blocked(uid_t uid);
+static inline bool susfs_is_uid_zeromount_excluded(uid_t uid) {
+	return zeromount_is_uid_blocked(uid);
+}
+#else
+static inline bool susfs_is_uid_zeromount_excluded(uid_t uid) { return false; }
+#endif
 #endif // #ifndef KSU_SUSFS_DEF_H

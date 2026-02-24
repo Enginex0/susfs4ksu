@@ -82,6 +82,24 @@ struct st_susfs_sus_kstat_hlist {
 	struct hlist_node                       node;
 	struct rcu_head				rcu;
 };
+
+struct st_susfs_sus_kstat_redirect {
+	char                                    virtual_pathname[SUSFS_MAX_LEN_PATHNAME];
+	char                                    real_pathname[SUSFS_MAX_LEN_PATHNAME];
+	unsigned long                           spoofed_ino;
+	unsigned long                           spoofed_dev;
+	unsigned int                            spoofed_nlink;
+	long long                               spoofed_size;
+	long                                    spoofed_atime_tv_sec;
+	long                                    spoofed_mtime_tv_sec;
+	long                                    spoofed_ctime_tv_sec;
+	long                                    spoofed_atime_tv_nsec;
+	long                                    spoofed_mtime_tv_nsec;
+	long                                    spoofed_ctime_tv_nsec;
+	unsigned long                           spoofed_blksize;
+	unsigned long long                      spoofed_blocks;
+	int                                     err;
+};
 #endif
 
 /* spoof_uname */
@@ -124,6 +142,13 @@ struct st_susfs_open_redirect_hlist {
 	char                                    redirected_pathname[SUSFS_MAX_LEN_PATHNAME];
 	struct hlist_node                       node;
 	struct rcu_head				rcu;
+};
+
+struct st_susfs_open_redirect_all_hlist {
+	unsigned long                           target_ino;
+	char                                    target_pathname[SUSFS_MAX_LEN_PATHNAME];
+	char                                    redirected_pathname[SUSFS_MAX_LEN_PATHNAME];
+	struct hlist_node                       node;
 };
 #endif
 
@@ -177,6 +202,7 @@ void susfs_set_hide_sus_mnts_for_non_su_procs(void __user **user_info);
 /* sus_kstat */
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 void susfs_add_sus_kstat(void __user **user_info);
+void susfs_add_sus_kstat_redirect(void __user **user_info);
 void susfs_update_sus_kstat(void __user **user_info);
 void susfs_sus_ino_for_generic_fillattr(unsigned long ino, struct kstat *stat);
 void susfs_sus_ino_for_show_map_vma(unsigned long ino, dev_t *out_dev, unsigned long *out_ino);
@@ -202,6 +228,8 @@ int susfs_spoof_cmdline_or_bootconfig(struct seq_file *m);
 /* open_redirect */
 #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
 void susfs_add_open_redirect(void __user **user_info);
+void susfs_add_open_redirect_all(void __user **user_info);
+struct filename* susfs_get_redirected_path_all(unsigned long ino);
 struct filename* susfs_get_redirected_path(unsigned long ino);
 #endif
 
@@ -220,5 +248,9 @@ void susfs_start_sdcard_monitor_fn(void);
 
 /* susfs_init */
 void susfs_init(void);
+
+#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER
+bool susfs_check_unicode_bypass(const char __user *filename);
+#endif
 
 #endif
