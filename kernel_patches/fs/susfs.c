@@ -22,6 +22,11 @@
 #include <linux/pagemap.h>
 #include <linux/limits.h>
 #include "mount.h"
+#include "fuse/fuse_i.h"
+
+#ifndef FUSE_SUPER_MAGIC
+#define FUSE_SUPER_MAGIC 0x65735546
+#endif
 
 extern bool susfs_is_current_ksu_domain(void);
 
