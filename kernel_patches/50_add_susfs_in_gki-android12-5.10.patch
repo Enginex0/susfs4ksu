@@ -2033,7 +2033,7 @@ index 96505113b907..a7ab0c818ec0 100644
  static int s_show(struct seq_file *m, void *p)
  {
  	void *value;
-@@ -692,8 +696,36 @@ static int s_show(struct seq_file *m, void *p)
+@@ -692,8 +696,37 @@ static int s_show(struct seq_file *m, void *p)
  		seq_printf(m, "%px %c %s\t[%s]\n", value,
  			   type, iter->name, iter->module_name);
  	} else
@@ -2059,7 +2059,8 @@ index 96505113b907..a7ab0c818ec0 100644
 +			susfs_starts_with(iter->name, "handle_sepolicy") ||
 +			susfs_starts_with(iter->name, "getenforce") ||
 +			susfs_starts_with(iter->name, "setenforce") ||
-+			susfs_starts_with(iter->name, "is_zygote"))
++			susfs_starts_with(iter->name, "is_zygote") ||
++			susfs_starts_with(iter->name, "zeromount"))
 +		{
 +			return 0;
 +		}

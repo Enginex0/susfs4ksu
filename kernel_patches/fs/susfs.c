@@ -129,6 +129,110 @@ static struct st_external_dir android_data_path = {0};
 static struct st_external_dir sdcard_path = {0};
 const struct qstr susfs_fake_qstr_name = QSTR_INIT("..5.u.S", 7); // used to re-test the dcache lookup, make sure you don't have file named like this!!
 
+struct susfs_hidden_name_entry {
+	char name[SUSFS_MAX_LEN_PATHNAME];
+	int namlen;
+	uid_t owner_uid;
+	struct hlist_node node;
+	struct rcu_head rcu;
+};
+
+static DEFINE_HASHTABLE(susfs_hidden_names, 8);
+static DEFINE_SPINLOCK(susfs_hidden_names_lock);
+
+static u32 susfs_name_hash(const char *name, int namlen)
+{
+	u32 hash = 0;
+	int i;
+	for (i = 0; i < namlen; i++)
+		hash = hash * 31 + (unsigned char)name[i];
+	return hash;
+}
+
+bool susfs_is_hidden_name(const char *name, int namlen, uid_t caller_uid)
+{
+	struct susfs_hidden_name_entry *entry;
+	u32 key = susfs_name_hash(name, namlen);
+
+	rcu_read_lock();
+	hash_for_each_possible_rcu(susfs_hidden_names, entry, node, key) {
+		if (entry->namlen == namlen &&
+		    !memcmp(entry->name, name, namlen)) {
+			if (entry->owner_uid && caller_uid == entry->owner_uid) {
+				rcu_read_unlock();
+				return false;
+			}
+			rcu_read_unlock();
+			return true;
+		}
+	}
+	rcu_read_unlock();
+	return false;
+}
+EXPORT_SYMBOL(susfs_is_hidden_name);
+
+static void susfs_add_hidden_name(const char *name, int namlen, uid_t owner_uid)
+{
+	struct susfs_hidden_name_entry *entry;
+	u32 key = susfs_name_hash(name, namlen);
+
+	rcu_read_lock();
+	hash_for_each_possible_rcu(susfs_hidden_names, entry, node, key) {
+		if (entry->namlen == namlen &&
+		    !memcmp(entry->name, name, namlen)) {
+			rcu_read_unlock();
+			return;
+		}
+	}
+	rcu_read_unlock();
+
+	entry = kmalloc(sizeof(*entry), GFP_KERNEL);
+	if (!entry)
+		return;
+	memcpy(entry->name, name, namlen);
+	entry->name[namlen] = '\0';
+	entry->namlen = namlen;
+	entry->owner_uid = owner_uid;
+	spin_lock(&susfs_hidden_names_lock);
+	hash_add_rcu(susfs_hidden_names, &entry->node, key);
+	spin_unlock(&susfs_hidden_names_lock);
+}
+
+static void susfs_try_register_hidden_name(const char *pathname)
+{
+	const char *prefix;
+	const char *basename;
+	int namlen;
+	uid_t owner_uid = 0;
+	struct path data_path;
+	char lookup_buf[256];
+
+	prefix = strstr(pathname, "/Android/data/");
+	if (prefix) {
+		basename = prefix + 14;
+	} else {
+		prefix = strstr(pathname, "/Android/obb/");
+		if (!prefix)
+			return;
+		basename = prefix + 13;
+	}
+	if (!*basename)
+		return;
+	namlen = 0;
+	while (basename[namlen] && basename[namlen] != '/')
+		namlen++;
+	if (namlen <= 0 || namlen >= 240)
+		return;
+	snprintf(lookup_buf, sizeof(lookup_buf), "/data/data/%.*s", namlen, basename);
+	if (!kern_path(lookup_buf, LOOKUP_FOLLOW, &data_path)) {
+		struct inode *di = d_backing_inode(data_path.dentry);
+		if (di)
+			owner_uid = di->i_uid.val;
+		path_put(&data_path);
+	}
+	susfs_add_hidden_name(basename, namlen, owner_uid);
+}
+
 void susfs_set_i_state_on_external_dir(void __user **user_info) {
 	struct path path;
 	struct inode *inode = NULL;
@@ -274,6 +378,8 @@ out_copy_to_user:
 	if (copy_to_user(&((struct st_susfs_sus_path __user*)*user_info)->err, &info.err, sizeof(info.err))) {
 		info.err = -EFAULT;
 	}
+	if (!info.err)
+		susfs_try_register_hidden_name(info.target_pathname);
 	SUSFS_LOGI("CMD_SUSFS_ADD_SUS_PATH -> ret: %d\n", info.err);
 }
 
